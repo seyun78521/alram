@@ -14,8 +14,10 @@ data class Question(
     val choiceD: String,
     val correctAnswer: String,          // "A", "B", "C", "D" 중 하나
     val explanation: String = "",
-    val category: String = "",          // 예: "Part 3"
+    val category: String = "",          // 예: "Part 2"
     val difficulty: Int = 0,
     val imagePath: String = "",
+    val questionSpeaker: String = "",   // 질문하는 사람 (예: "W-Br")
+    val answerSpeaker: String = "",     // 선택지(응답)를 말하는 사람 (예: "M-Au")
     val createdAt: Long = System.currentTimeMillis()
 )

@@ -14,6 +14,7 @@ object QuestionParser {
     private val numberLine = Regex("^\\d{1,3}$")                         // "11" 같은 문제 번호 줄
     private val speakerLabel = Regex("^[MW]-[A-Za-z]{2,3}\\b\\s*")       // "W-Br", "M-Au" 같은 화자 표시
     private val speakerOnly = Regex("^[MW]-[A-Za-z]{2,3}$")              // 화자 표시만 있는 줄
+    private val speakerAtStart = Regex("^([MW]-[A-Za-z]{2,3})\\b")       // 줄 맨 앞의 화자 표시 (누가 말하는지 확인용)
     private val choiceLine =
         Regex("^(?:[MW]-[A-Za-z]{2,3}\\s+)?\\(?\\s*([A-C])\\s*\\)\\s*(.+)$") // "(A) ..." (앞에 화자 표시가 있어도 됨)
     private val hangul = Regex("[가-힣]")
@@ -57,7 +58,9 @@ object QuestionParser {
     }
 
     private class BlockResult(val question: Question?, val error: String? = null)
-
+    // "W-br" 같은 표기를 "W-Br" 로 통일한다
+    private fun normalizeSpeaker(s: String): String =
+        "${s[0].uppercaseChar()}-${s[2].uppercaseChar()}${s.substring(3).lowercase()}"
     // 영어 글자 정리: OCR이 자주 틀리는 I 관련 오류를 고치고 공백을 정리한다
     private fun cleanEnglish(s: String): String =
         s.replace("|", " I ")                                   // 대문자 I가 세로선으로 읽힌 경우
@@ -160,6 +163,12 @@ object QuestionParser {
             else -> return BlockResult(null, "정답을 찾지 못함 (해설: ${explanation.take(300)})")
         }
 
+        // 7) 말하는 사람: 선택지 위쪽 줄과 첫 선택지 줄 맨 앞의 화자 표시를 순서대로 모은다
+        //    첫 번째 = 질문하는 사람, 두 번째 = 선택지(응답)를 말하는 사람
+        val speakers = (0..firstChoiceIndex).mapNotNull { i ->
+            speakerAtStart.find(block[i])?.groupValues?.get(1)?.let { normalizeSpeaker(it) }
+        }
+
         return BlockResult(
             Question(
                 questionText = questionText,
@@ -170,7 +179,9 @@ object QuestionParser {
                 correctAnswer = answer,
                 explanation = explanation,
                 category = category,
-                imagePath = imagePath
+                imagePath = imagePath,
+                questionSpeaker = speakers.getOrElse(0) { "" },
+                answerSpeaker = speakers.getOrElse(1) { "" }
             )
         )
     }

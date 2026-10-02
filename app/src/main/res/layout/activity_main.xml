@@ -40,8 +40,27 @@
                 android:layout_height="wrap_content"
                 android:text="기기의 영어 음성 목록 확인 (Logcat)" />
 
+            <Button
+                android:id="@+id/btnDemo"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="화자별 목소리 테스트 (4명)" />
+
+            <Button
+                android:id="@+id/btnAudition"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="설치된 영어 음성 전부 들어보기" />
+
+            <Button
+                android:id="@+id/btnSetup"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="이 폰의 화자별 음성 설정" />
+
             <TextView
                 android:id="@+id/tvStatus"
+                android:textIsSelectable="true"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"

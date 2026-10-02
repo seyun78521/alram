@@ -25,17 +25,19 @@ class QuestionReader(context: Context) {
     private val counter = AtomicInteger()
     private var currentVoiceName: String? = null                       // 지금 적용된 음성 (같으면 다시 바꾸지 않는다)
 
-    // 폰마다 음성 이름이 같도록 Google 음성 엔진을 지정한다 (없으면 기본 엔진으로 자동 전환)
-    private val googleEngine = "com.google.android.tts"
+    // 쓸 TTS 엔진. Google 엔진을 지정한다 (없으면 기본 엔진으로 자동 전환). null로 바꾸면 처음부터 기본 엔진을 쓴다.
+    private val preferredEngine: String? = "com.google.android.tts"
 
-    // 개발 기기에서 직접 들어보고 정한 기본 음성 (같은 이름의 음성이 있는 폰에서는 설정 없이 바로 쓰인다)
-    private val voiceByLabel = mapOf(
-        "W-Am" to "en-us-x-tpf-local",
-        "W-Br" to "en-us-x-tpc-local",
-        "M-Au" to "en-us-x-tpd-local",
-        "M-Cn" to "en-us-x-msm00013-local"
-    )
-    private val speakerLabels = voiceByLabel.keys.toList()
+    // ===== 화자별 음성 번호 =====
+    // 번호는 "설치된 영어 음성 전부 들어보기" 화면에 나오는 번호이고, 이 기기(에뮬레이터)에서 직접 듣고 고른 값이다.
+    // 순서: [W-Am, W-Br, 그 외 여성] / [M-Au, M-Cn, 그 외 남성]
+    private val femaleVoiceNumbers = listOf(17, 13, 4)
+    private val maleVoiceNumbers = listOf(15, 6, 8)
+
+    // 화자별 음높이는 모두 1.0으로 고정한다
+    private val pitch = 1.0f
+
+    private val speakerLabels = listOf("W-Am", "W-Br", "M-Au", "M-Cn")
 
     // 한 문장을 다 읽으면 알려주는 장치
     private val listener = object : UtteranceProgressListener() {
@@ -60,7 +62,7 @@ class QuestionReader(context: Context) {
     }
 
     init {
-        start(googleEngine)
+        start(preferredEngine)
     }
 
     // TTS를 시작한다. 지정한 엔진을 쓸 수 없으면 기본 엔진으로 다시 시도한다.
@@ -90,7 +92,7 @@ class QuestionReader(context: Context) {
             if (q.answerSpeaker.isNotEmpty()) SpeakerVoices.profileFor(q.answerSpeaker)
             else SpeakerVoices.fallbackAnswerer(asker)
 
-        // 질문하는 사람과 응답하는 사람은 항상 다른 음성이 되게 고른다
+        // 질문하는 사람과 응답하는 사람은 가능하면 다른 음성이 되게 고른다
         val askerVoice = voiceFor(engine, asker, null)
         val answererVoice = voiceFor(engine, answerer, askerVoice)
 
@@ -108,10 +110,13 @@ class QuestionReader(context: Context) {
     suspend fun demo(): Boolean {
         if (!ready.await()) return false
         val engine = tts ?: return false
+        var previous: Voice? = null
         for (label in speakerLabels) {
             val profile = SpeakerVoices.profileFor(label)
+            val voice = voiceFor(engine, profile, previous)
             val sentence = "Hello, this is $label. Did you receive the e-mail I sent?"
-            if (!speakAll(listOf(sentence), profile, voiceFor(engine, profile, null), 0)) return false
+            if (!speakAll(listOf(sentence), profile, voice, 0)) return false
+            previous = voice
             delay(600)
         }
         return true
@@ -162,15 +167,15 @@ class QuestionReader(context: Context) {
         return installedLocalEnglish(engine).sortedBy { it.name }
     }
 
-    // 이 폰에서 음성 설정이 필요한가? (네 사람 중 쓸 음성을 못 찾는 사람이 있으면 true)
+    // 이 폰에서 음성 설정이 필요한가? (네 사람 중 저장된 선택도 없고 정해 둔 번호의 음성도 없는 사람이 있으면 true)
     suspend fun needsVoiceSetup(): Boolean {
         if (!ready.await()) return true
         val engine = tts ?: return true
-        val installed = installedLocalEnglish(engine)
+        val all = auditionVoices(engine)
         return speakerLabels.any { label ->
-            val saved = savedVoiceName(label)
-            val known = voiceByLabel[label]
-            installed.none { it.name == saved || it.name == known }
+            val hasSaved = all.any { it.name == savedVoiceName(label) }
+            val number = numberFor(SpeakerVoices.profileFor(label))
+            !hasSaved && (number == null || number > all.size)
         }
     }
 
@@ -234,31 +239,29 @@ class QuestionReader(context: Context) {
         }
     }
 
-    // 이 사람의 목소리를 적용한다. 고른 음성이 있으면 그 음성을 그대로(음높이 변경 없이) 쓴다.
+    // 이 사람의 목소리를 적용한다 (음높이와 속도는 항상 1.0)
     private fun applyProfile(engine: TextToSpeech, profile: VoiceProfile, voice: Voice?) {
-        val pitch: Float
         if (voice != null) {
             if (voice.name != currentVoiceName) {
                 engine.setVoice(voice)
                 currentVoiceName = voice.name
             }
-            pitch = 1.0f
         } else {
-            // 쓸 음성을 못 찾은 경우: 언어만 맞추고 음높이로 구분한다 (성별 구분이 약하다)
+            // 쓸 음성을 못 찾은 경우: 언어만 맞춘다 (남녀 구분이 안 될 수 있다)
             val r = engine.setLanguage(profile.locale)
             if (r == TextToSpeech.LANG_MISSING_DATA || r == TextToSpeech.LANG_NOT_SUPPORTED) {
                 engine.setLanguage(Locale.US)
             }
             currentVoiceName = null
-            pitch = profile.pitch
         }
-        engine.setPitch(pitch)
-        engine.setSpeechRate(profile.rate)
+        engine.setPitch(1.0f)
+        engine.setSpeechRate(1.0f)
 
+        val number = voice?.let { v -> auditionVoices(engine).indexOfFirst { it.name == v.name } + 1 }
         Log.d(
             "TTS",
-            "적용: ${profile.label} | 음성=${voice?.name ?: "(없음: 언어만 설정)"} | 억양=${voice?.locale ?: profile.locale} " +
-                    "| 음높이=$pitch | 속도=${profile.rate}"
+            "적용: ${profile.label} | 번호=${number ?: "-"} | 음성=${voice?.name ?: "(없음: 언어만 설정)"} " +
+                    "| 억양=${voice?.locale ?: profile.locale} | 음높이=1.0 | 속도=1.0"
         )
     }
 
@@ -273,7 +276,7 @@ class QuestionReader(context: Context) {
         emptyList()
     }
 
-    // "설치된 영어 음성 전부 들어보기"에 쓰는 목록 (인터넷 필요한 음성도 포함)
+    // "설치된 영어 음성 전부 들어보기"에 나오는 목록. 이 목록의 순서가 음성 "번호"이다.
     private fun auditionVoices(engine: TextToSpeech): List<Voice> = try {
         engine.voices.orEmpty()
             .filter { it.locale.language == "en" && it.features?.contains("notInstalled") != true }
@@ -282,33 +285,45 @@ class QuestionReader(context: Context) {
         emptyList()
     }
 
+    // 사람마다 정해 둔 음성 번호 (W-Am 17, W-Br 13, M-Au 15, M-Cn 6, 그 외 여성 4, 그 외 남성 8)
+    private fun numberFor(profile: VoiceProfile): Int? {
+        val slot = slotOf(profile.label)
+        return when (profile.isFemale) {
+            true -> femaleVoiceNumbers[slot]
+            false -> maleVoiceNumbers[slot]
+            null -> null
+        }
+    }
+
+    private fun slotOf(label: String): Int = when (label) {
+        "W-Am", "M-Au" -> 0
+        "W-Br", "M-Cn" -> 1
+        else -> 2
+    }
+
     // 이 사람에게 쓸 음성을 고른다.
-    // 순서: ① 이 폰에 저장한 선택 ② 정해 둔 기본 음성 ③ 같은 성별 후보 ④ (없으면 null → 음높이 방식)
-    // 앞사람(avoid)과 같은 음성이면 같은 성별의 다른 음성으로 바꾼다.
+    // 순서: ① 이 폰의 설정 화면에서 직접 고른 음성 ② 정해 둔 번호의 음성 ③ (없으면 null → 언어만 설정)
+    // 앞사람(avoid)과 같은 음성이면 같은 성별의 다른 번호 음성으로 바꾼다.
     private fun voiceFor(engine: TextToSpeech, profile: VoiceProfile, avoid: Voice?): Voice? {
-        val installed = installedLocalEnglish(engine)
-        fun byName(name: String?): Voice? = installed.firstOrNull { it.name == name }
+        val all = auditionVoices(engine)
+        if (all.isEmpty()) return null
 
-        val prefix = profile.label.firstOrNull()?.toString() // "W" 또는 "M"
+        val saved = all.firstOrNull { it.name == savedVoiceName(profile.label) }
 
-        // 같은 성별 후보: 이 폰에 저장된 음성 → 정해 둔 음성 → 이름에 성별 힌트가 있는 음성
-        val sameGender: List<Voice> =
-            if (prefix == null || profile.isFemale == null) emptyList()
-            else {
-                val saved = prefs.all.filterKeys { it.startsWith("voice_$prefix-") }
-                    .values.mapNotNull { byName(it as? String) }
-                val known = voiceByLabel.filterKeys { it.startsWith("$prefix-") }
-                    .values.mapNotNull { byName(it) }
-                val hinted = installed.filter { genderOf(it) == profile.isFemale }
-                (saved + known + hinted).distinctBy { it.name }
-            }
+        val numbers = when (profile.isFemale) {
+            true -> femaleVoiceNumbers
+            false -> maleVoiceNumbers
+            null -> return saved
+        }
+        val slot = slotOf(profile.label)
+        // 이 사람의 번호를 맨 앞에 두고, 같은 성별의 다른 번호가 뒤따른다
+        val candidates = numbers.indices
+            .map { numbers[(slot + it) % numbers.size] }
+            .mapNotNull { all.getOrNull(it - 1) }
 
-        var voice = byName(savedVoiceName(profile.label))
-            ?: byName(voiceByLabel[profile.label])
-            ?: sameGender.firstOrNull()
-
+        var voice = saved ?: candidates.firstOrNull()
         if (voice != null && avoid != null && voice.name == avoid.name) {
-            voice = sameGender.firstOrNull { it.name != avoid.name } ?: voice
+            voice = candidates.firstOrNull { it.name != avoid.name } ?: voice
         }
         return voice
     }
@@ -329,12 +344,10 @@ class QuestionReader(context: Context) {
         val engine = tts ?: return emptyList()
         return try {
             val head = "TTS 엔진: ${engine.defaultEngine}"
-            val voices = engine.voices.orEmpty()
-                .filter { it.locale.language == "en" }
-                .sortedBy { it.name }
-                .map {
-                    val g = genderOf(it)?.let { f -> if (f) "여" else "남" } ?: "없음"
-                    "${it.name} | ${it.locale} | 성별힌트=$g | 인터넷필요=${it.isNetworkConnectionRequired}"
+            val voices = auditionVoices(engine)
+                .mapIndexed { i, v ->
+                    val g = genderOf(v)?.let { f -> if (f) "여" else "남" } ?: "없음"
+                    "${i + 1}. ${v.name} | ${v.locale} | 성별힌트=$g | 인터넷필요=${v.isNetworkConnectionRequired}"
                 }
             listOf(head) + voices
         } catch (e: Exception) {

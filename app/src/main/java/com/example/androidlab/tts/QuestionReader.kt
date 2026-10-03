@@ -34,9 +34,6 @@ class QuestionReader(context: Context) {
     private val femaleVoiceNumbers = listOf(17, 13, 4)
     private val maleVoiceNumbers = listOf(15, 6, 8)
 
-    // 화자별 음높이는 모두 1.0으로 고정한다
-    private val pitch = 1.0f
-
     private val speakerLabels = listOf("W-Am", "W-Br", "M-Au", "M-Cn")
 
     // 한 문장을 다 읽으면 알려주는 장치
@@ -154,10 +151,6 @@ class QuestionReader(context: Context) {
 
     fun saveVoice(label: String, voiceName: String) {
         prefs.edit().putString("voice_$label", voiceName).apply()
-    }
-
-    fun clearSavedVoices() {
-        prefs.edit().clear().apply()
     }
 
     // 설정 화면에 보여줄 음성 목록: 인터넷 없이 쓸 수 있는 설치된 영어 음성

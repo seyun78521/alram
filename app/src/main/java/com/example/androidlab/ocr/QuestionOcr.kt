@@ -34,10 +34,6 @@ class QuestionOcr {
         return ReadingOrder.sort(result.textBlocks.flatMap { it.lines }, bitmap.width)
     }
 
-    // 글자만 필요할 때
-    suspend fun recognizeOrdered(bitmap: Bitmap): List<String> =
-        recognizeLines(bitmap).map { it.text }
-
     fun close() {
         recognizer.close()
     }

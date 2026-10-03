@@ -24,12 +24,60 @@ object QuestionParser {
     private val choiceMarker = Regex("\\(\\s*([A-C])\\s*\\)")            // 해설 속 "(A)", "(B)" 표시
     private val wrongMark = Regex("오[답담단딥당]")                         // "오답" (OCR 오독 포함)
 
+    // ===== 영어 글자 교정 규칙 (OCR이 자주 틀리는 것들) =====
+    private val zeroAfterLetter = Regex("(?<=[A-Za-z])0(?![0-9])")       // 글자 바로 뒤의 0 → o ("t0" → "to"). 숫자끼리 붙은 0은 제외
+    private val zeroBeforeLetter = Regex("(?<![0-9])0(?=[A-Za-z])")      // 글자 바로 앞의 0 → o ("0n" → "on"). "10am"은 제외
+    private val loneT = Regex("(?<![\\w-])T(?![\\w-])")                  // 홀로 있는 T (I가 T로 읽힌 경우). "T-shirt"는 제외
+    private val spaceInContraction = Regex("(?<=[A-Za-z])'\\s+(ve|ll|re|m|d|s|t)\\b") // "we' ve" → "we've"
+    private val extraSAfterApostropheS = Regex("(\\w+'s)\\s+s\\b")       // "It's s still" → "It's still"
+    private val iPrefixedLl = Regex("(?<=[A-Za-z])'I\\b")                // "I'I see" → "I'll see"
+    private val lostI_m = Regex("(?<![\\w'])'m\\b")                      // "'m staying" → "I'm staying"
+    private val lostI_ll = Regex("(?<![\\w'])'ll\\b")                    // "'ll go" → "I'll go"
+    private val ihAsIll = Regex("\\b[ITl]H\\b")                          // "IH turn" → "I'll turn"
+    private val stuckI = Regex(                                          // "Thave", "Ineed", "lalways", "Tam" → "I have", "I am" ...
+        "\\b[ITli](am|have|need|always|just|measured|will|would|think|should|could|was|like|want|got|saw|know|usually|already|actually|can|did|had|don't|didn't|haven't)\\b"
+    )
+    private val missingApostrophe = Regex(                               // "didnt" → "didn't"
+        "\\b(did|was|is|does|could|would|should|have|has|are|do)nt\\b", RegexOption.IGNORE_CASE
+    )
+    private val missingApostropheLl = Regex(                             // "theyll" → "they'll" (he/she/we는 hell/shell/well이라 제외)
+        "\\b(they|you|it|that|there|who|what)ll\\b", RegexOption.IGNORE_CASE
+    )
+    private val wordRun = Regex("[A-Za-z]+")
+    private val innerUpper = Regex("[a-z][A-Z]")                         // 소문자 바로 뒤의 대문자 (HoW, hourS)
+    private val twoCapsThenLower = Regex("^[A-Z]{2}[a-z]{2,}$")          // LOcally 같은 모양
+    private val trailingJunk = Regex("[,;:\\-–]+$")                      // 문장 끝의 쉼표/하이픈 (마침표가 잘못 읽힌 경우)
+
+    // 영어 단어가 아닌 "OCR 오독 철자" → 올바른 단어. (정상 영어 단어와 겹치는 것은 넣지 않았다)
+    private val wordFixes: Map<String, String> = mapOf(
+        // 글자가 빠진 경우
+        "wll" to "will", "wil" to "will", "stil" to "still", "numbe" to "number",
+        // m 이 rn 으로 읽힌 경우
+        "tearn" to "team", "sorne" to "some", "sornething" to "something", "sorneone" to "someone",
+        "rnore" to "more", "rnake" to "make", "rnuch" to "much", "rnay" to "may", "rnaybe" to "maybe",
+        "rnust" to "must", "rnight" to "might", "rny" to "my", "rnail" to "mail", "rnap" to "map",
+        "rnenu" to "menu", "rnoney" to "money", "rnonth" to "month", "rnorning" to "morning",
+        "rneeting" to "meeting", "rnanager" to "manager", "rnanagement" to "management",
+        "managernent" to "management", "departrnent" to "department", "cornpany" to "company",
+        "cornputer" to "computer", "cornplete" to "complete", "tirne" to "time", "narne" to "name",
+        "sarne" to "same", "forrn" to "form", "frorn" to "from", "ernail" to "email",
+        "ernployee" to "employee", "ernployees" to "employees", "irnportant" to "important",
+        "remnember" to "remember", "rernember" to "remember",
+        // y 가 v 로 읽힌 경우
+        "vou" to "you", "vour" to "your", "vours" to "yours", "vear" to "year", "vears" to "years",
+        "vesterday" to "yesterday", "todav" to "today", "alwavs" to "always", "anvone" to "anyone",
+        "anvthing" to "anything", "evervone" to "everyone", "evervthing" to "everything",
+        "emplovee" to "employee", "emplovees" to "employees", "emplover" to "employer",
+        "mav" to "may", "stav" to "stay", "pav" to "pay", "dav" to "day", "davs" to "days",
+        // 그 밖에 자주 보이는 혼동
+        "haif" to "half", "oroiect" to "project", "oroject" to "project"
+    )
+
     // OCR로 읽은 줄들을 넣으면 Question 목록으로 바꿔준다.
     // redOf: 줄 번호를 주면 그 줄의 "빨간 글자 비율"을 알려주는 함수 (정답 선택지 판정용, 없으면 해설로만 판단)
     fun parse(
         lines: List<String>,
         category: String = "Part 2",
-        imagePath: String = "",
         redOf: (Int) -> Float = { 0f }
     ): ParseResult {
         // 빈 줄을 뺀 목록. keep[i]는 cleaned[i]가 원래 몇 번째 줄이었는지
@@ -45,7 +93,7 @@ object QuestionParser {
         for ((n, start) in starts.withIndex()) {
             val end = if (n + 1 < starts.size) starts[n + 1] else cleaned.size
             val block = cleaned.subList(start + 1, end) // 이 문제에 속한 줄들만
-            val result = parseBlock(block, category, imagePath) { i -> redOf(keep[start + 1 + i]) }
+            val result = parseBlock(block, category) { i -> redOf(keep[start + 1 + i]) }
 
             val q = result.question
             if (q != null) {
@@ -58,16 +106,71 @@ object QuestionParser {
     }
 
     private class BlockResult(val question: Question?, val error: String? = null)
+
     // "W-br" 같은 표기를 "W-Br" 로 통일한다
     private fun normalizeSpeaker(s: String): String =
         "${s[0].uppercaseChar()}-${s[2].uppercaseChar()}${s.substring(3).lowercase()}"
-    // 영어 글자 정리: OCR이 자주 틀리는 I 관련 오류를 고치고 공백을 정리한다
-    private fun cleanEnglish(s: String): String =
-        s.replace("|", " I ")                                   // 대문자 I가 세로선으로 읽힌 경우
+
+    // 대소문자가 뒤섞인 단어를 고친다: HoW → How, hourS → hours, LOcally → Locally
+    private fun fixMixedCase(s: String): String = wordRun.replace(s) { m ->
+        val w = m.value
+        if (w.length >= 3 && (innerUpper.containsMatchIn(w) || twoCapsThenLower.matches(w))) {
+            w[0] + w.substring(1).lowercase()
+        } else w
+    }
+
+    // 등록해 둔 오독 철자를 올바른 단어로 바꾼다 (첫 글자가 대문자였으면 대문자로 유지)
+    private fun fixKnownMisreads(s: String): String = wordRun.replace(s) { m ->
+        val w = m.value
+        val fix = wordFixes[w.lowercase()]
+        when {
+            fix == null -> w
+            w[0].isUpperCase() -> fix.replaceFirstChar { it.uppercaseChar() }
+            else -> fix
+        }
+    }
+
+    // 영어 글자 정리: OCR이 자주 틀리는 글자를 고치고 공백을 정리한다.
+    // 순서가 중요하다 (앞 규칙의 결과를 뒤 규칙이 이어받는 경우가 있다).
+    private fun cleanEnglish(s: String): String {
+        var t = s
+            .replace("|", " I ")                                // 대문자 I가 세로선으로 읽힌 경우
+            .replace('’', '\'')                                 // 굽은 아포스트로피를 보통 것으로
+            .replace(zeroAfterLetter, "o")                      // t0 → to, g0 → go (숫자끼리 붙은 0은 그대로)
+            .replace(zeroBeforeLetter, "o")                     // 0n → on
             .replace(Regex("\\b(?:PI|II|I)l\\b"), "I'll")       // I'll 이 Il, PIl, IIl 로 읽힌 경우
             .replace(Regex("\\bl\\b"), "I")                     // 홀로 있는 소문자 l 은 I
-            .replace(Regex("\\s+"), " ")
+            .replace(loneT, "I")                                // 홀로 있는 T 는 I (T brought → I brought)
+
+        // 아포스트로피 주변
+        t = t.replace(spaceInContraction, "'\$1")               // we' ve → we've
+            .replace(extraSAfterApostropheS, "\$1")             // It's s still → It's still
+            .replace("'I'll", "'ll")                            // I'I'll → I'll, We'I'll → We'll
+            .replace(iPrefixedLl, "'ll")                        // I'I see → I'll see
+            .replace(lostI_m, "I'm")                            // 'm staying → I'm staying
+            .replace(lostI_ll, "I'll")
+            .replace(ihAsIll, "I'll")                           // IH turn → I'll turn
+
+        // 대문자 I가 옆 글자에 붙거나 다른 글자로 읽힌 경우
+        t = t.replace(stuckI, "I \$1")                          // Thave → I have, Tam → I am, ijust → I just
+            .replace(Regex("\\blt\\b"), "It")                   // lt's → It's
+            .replace(Regex("\\bls\\b"), "Is")                   // ls this → Is this
+            .replace(Regex("(?<![\\w'])sn't\\b"), "Isn't")      // sn't → Isn't
+            .replace(Regex("\\bIm\\b"), "I'm")
+
+        // 아포스트로피가 빠진 경우
+        t = t.replace(missingApostrophe) { it.groupValues[1] + "n't" }   // didnt → didn't
+            .replace(missingApostropheLl) { it.groupValues[1] + "'ll" }  // theyll → they'll
+
+        // 끝에 붙은 잡글자, 대소문자 뒤섞임, 등록된 오독 철자
+        t = t.replace(Regex("\\b(new)[Ww]\\b"), "\$1")          // newW → new (끝에 W가 따라붙은 경우)
+        t = fixMixedCase(t)
+        t = fixKnownMisreads(t)
+
+        return t.replace(Regex("\\s+"), " ")
             .trim()
+            .replace(trailingJunk, ".")                         // "supplier," → "supplier."
+    }
 
     // 해설에서 "오답"으로 표시된 선택지 두 개를 빼고 남은 하나를 정답으로 판단한다
     private fun answerByElimination(explanation: String): String? {
@@ -86,7 +189,6 @@ object QuestionParser {
     private fun parseBlock(
         rawBlock: List<String>,
         category: String,
-        imagePath: String,
         redOfBlockLine: (Int) -> Float
     ): BlockResult {
         // 0) 해설 뒤에 다음 문제의 화자 표시(M-Au 등)가 나오면 거기서 자른다
@@ -169,6 +271,7 @@ object QuestionParser {
             speakerAtStart.find(block[i])?.groupValues?.get(1)?.let { normalizeSpeaker(it) }
         }
 
+        // imagePath는 비워 둔다. QuestionImporter가 저장 직전에 채운다.
         return BlockResult(
             Question(
                 questionText = questionText,
@@ -179,7 +282,6 @@ object QuestionParser {
                 correctAnswer = answer,
                 explanation = explanation,
                 category = category,
-                imagePath = imagePath,
                 questionSpeaker = speakers.getOrElse(0) { "" },
                 answerSpeaker = speakers.getOrElse(1) { "" }
             )

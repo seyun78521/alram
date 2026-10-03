@@ -29,6 +29,12 @@
                 android:text="문제 사진 가져오기" />
 
             <Button
+                android:id="@+id/btnCheck"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="저장된 문제 전체 확인 (정답·오타 점검)" />
+
+            <Button
                 android:id="@+id/btnSpeak"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"

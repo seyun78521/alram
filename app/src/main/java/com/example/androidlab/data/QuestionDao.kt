@@ -19,6 +19,10 @@ interface QuestionDao {
     @Query("SELECT * FROM questions WHERE id = :id")
     suspend fun getById(id: Long): Question?
 
+    // 저장된 문제 전체를 id 순서(=저장된 순서)로 조회 (확인용)
+    @Query("SELECT * FROM questions ORDER BY id")
+    suspend fun getAll(): List<Question>
+
     // 전체에서 랜덤으로 count개 조회 (한 번 조회할 때 중복 없음)
     @Query("SELECT * FROM questions ORDER BY RANDOM() LIMIT :count")
     suspend fun getRandom(count: Int): List<Question>

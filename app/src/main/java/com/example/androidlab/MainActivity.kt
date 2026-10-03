@@ -15,6 +15,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.lifecycleScope
 import com.example.androidlab.data.AppDatabase
 import com.example.androidlab.data.LocalQuestionProvider
+import com.example.androidlab.data.QuestionCheck
 import com.example.androidlab.ocr.BatchImporter
 import com.example.androidlab.tts.QuestionReader
 import kotlinx.coroutines.Job
@@ -25,6 +26,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var batchImporter: BatchImporter
     private lateinit var reader: QuestionReader
     private lateinit var btnImport: Button
+    private lateinit var btnCheck: Button
     private lateinit var btnSpeak: Button
     private lateinit var btnVoices: Button
     private lateinit var btnDemo: Button
@@ -52,6 +54,7 @@ class MainActivity : AppCompatActivity() {
         batchImporter = BatchImporter(applicationContext)
         reader = QuestionReader(applicationContext)
         btnImport = findViewById(R.id.btnImport)
+        btnCheck = findViewById(R.id.btnCheck)
         btnSpeak = findViewById(R.id.btnSpeak)
         btnVoices = findViewById(R.id.btnVoices)
         btnDemo = findViewById(R.id.btnDemo)
@@ -60,6 +63,7 @@ class MainActivity : AppCompatActivity() {
         tvStatus = findViewById(R.id.tvStatus)
 
         btnImport.setOnClickListener { pickImages.launch(arrayOf("image/*")) }
+        btnCheck.setOnClickListener { checkAll() }
         btnSpeak.setOnClickListener { speakRandom() }
         btnVoices.setOnClickListener {
             lifecycleScope.launch {
@@ -110,6 +114,20 @@ class MainActivity : AppCompatActivity() {
             } finally {
                 btnImport.isEnabled = true
             }
+        }
+    }
+
+    // 저장된 문제 전체를 정답 근거 / 오타 의심과 함께 화면과 Logcat(tag: CHECK)에 출력한다
+    private fun checkAll() {
+        lifecycleScope.launch {
+            val questions = AppDatabase.getInstance(applicationContext).questionDao().getAll()
+            if (questions.isEmpty()) {
+                tvStatus.text = "저장된 문제가 없습니다. 먼저 사진을 가져오세요."
+                return@launch
+            }
+            val report = QuestionCheck.buildReport(questions)
+            report.forEach { Log.d("CHECK", it) } // 첫 항목은 요약, 나머지는 문제별
+            tvStatus.text = report.joinToString("\n\n")
         }
     }
 

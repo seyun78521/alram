@@ -12,20 +12,26 @@ import com.example.androidlab.ocr.QuestionImporter
 import com.example.androidlab.tts.QuestionReader
 import kotlinx.coroutines.launch
 
-// 현재 DB / OCR / TTS 기능을 테스트하기 위한 화면
+/*
+ * 현재는 DB/OCR/TTS 기능 테스트용 화면
+ */
 class MainActivity : AppCompatActivity() {
 
     private lateinit var importer: QuestionImporter
     private lateinit var reader: QuestionReader
     private lateinit var statusText: TextView
 
-    // 갤러리에서 여러 이미지를 선택
+    /*
+     * 갤러리에서 이미지 여러 장 선택
+     */
     private val pickImages =
         registerForActivityResult(
             ActivityResultContracts.OpenMultipleDocuments()
         ) { uris: List<Uri> ->
 
-            if (uris.isNotEmpty()) {
+            if (
+                uris.isNotEmpty()
+            ) {
                 importQuestions(uris)
             }
         }
@@ -33,32 +39,33 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(
         savedInstanceState: Bundle?
     ) {
-        super.onCreate(savedInstanceState)
 
-        // 테스트 화면 연결
+        super.onCreate(
+            savedInstanceState
+        )
+
         setContentView(
             R.layout.activity_main
         )
 
-        // 문제 이미지 등록 기능
         importer =
             QuestionImporter(
                 applicationContext
             )
 
-        // TTS 기능
         reader =
             QuestionReader(
                 applicationContext
             )
 
-        // 상태 TextView
         statusText =
             findViewById(
                 R.id.statusText
             )
 
-        // 이미지 등록 버튼
+        /*
+         * 문제 이미지 등록
+         */
         findViewById<Button>(
             R.id.importButton
         ).setOnClickListener {
@@ -68,7 +75,9 @@ class MainActivity : AppCompatActivity() {
             )
         }
 
-        // 랜덤 문제 TTS 버튼
+        /*
+         * 랜덤 문제 TTS
+         */
         findViewById<Button>(
             R.id.speakButton
         ).setOnClickListener {
@@ -77,7 +86,9 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // 선택한 이미지들을 DB에 저장
+    /*
+     * 이미지 -> OCR -> DB
+     */
     private fun importQuestions(
         uris: List<Uri>
     ) {
@@ -88,32 +99,91 @@ class MainActivity : AppCompatActivity() {
                 "문제 등록 중..."
 
             val result =
-                importer.importFromUris(uris)
+                importer.importFromUris(
+                    uris
+                ) { done, total ->
 
+                    statusText.text =
+                        "문제 등록 중... " +
+                                "$done / $total"
+                }
+
+            /*
+             * 최종 결과 표시
+             */
             statusText.text =
-                "등록 완료: ${result.saved}개 / 실패: ${result.failed}개"
+                buildString {
+
+                    append(
+                        "등록 완료\n"
+                    )
+
+                    append(
+                        "저장된 문제: " +
+                                "${result.saved}개\n"
+                    )
+
+                    append(
+                        "이미지 실패: " +
+                                "${result.failed.size}장\n"
+                    )
+
+                    append(
+                        "문제 인식 실패: " +
+                                "${result.skipped.size}개"
+                    )
+
+                    if (
+                        result.failed.isNotEmpty()
+                    ) {
+
+                        append(
+                            "\n\n[이미지 실패]\n"
+                        )
+
+                        append(
+                            result.failed
+                                .joinToString("\n")
+                        )
+                    }
+
+                    if (
+                        result.skipped.isNotEmpty()
+                    ) {
+
+                        append(
+                            "\n\n[문제 인식 실패]\n"
+                        )
+
+                        append(
+                            result.skipped
+                                .joinToString("\n")
+                        )
+                    }
+                }
         }
     }
 
-    // DB에서 랜덤 문제를 가져와 TTS로 읽는다.
+    /*
+     * DB에서 랜덤 문제 1개 가져오기
+     */
     private fun speakRandomQuestion() {
 
         lifecycleScope.launch {
 
-            // DB에서 문제를 가져오는 객체
             val provider =
                 LocalQuestionProvider(
                     applicationContext
                 )
 
-            // 랜덤 문제 1개 가져오기
             val question =
                 provider
                     .getQuestions(1)
                     .firstOrNull()
 
-            // 문제 없음
-            if (question == null) {
+            if (
+                question == null
+            ) {
 
                 statusText.text =
                     "저장된 문제가 없습니다."
@@ -121,23 +191,28 @@ class MainActivity : AppCompatActivity() {
                 return@launch
             }
 
-            // 테스트 화면에 문제 표시
+            /*
+             * 화면에 실제 저장된 데이터 표시
+             */
             statusText.text =
-                question.questionText +
-                        "\n\n" +
+                "${question.questionText}\n\n" +
                         "A. ${question.choiceA}\n" +
                         "B. ${question.choiceB}\n" +
                         "C. ${question.choiceC}"
 
-            // TTS로 문제 읽기
-            reader.read(question)
+            /*
+             * TTS
+             */
+            reader.read(
+                question
+            )
         }
     }
 
     override fun onDestroy() {
 
-        // 사용이 끝난 기능 정리
         importer.close()
+
         reader.shutdown()
 
         super.onDestroy()

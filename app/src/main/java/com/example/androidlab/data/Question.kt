@@ -5,19 +5,47 @@ import androidx.room.PrimaryKey
 
 @Entity(tableName = "questions")
 data class Question(
+
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0,
+
+    // OCR 원본
+    val rawText: String,
+
+    // 문제
     val questionText: String,
+
+    // 선택지
     val choiceA: String,
     val choiceB: String,
     val choiceC: String,
-    val choiceD: String,
-    val correctAnswer: String,          // "A", "B", "C", "D" 중 하나
+
+    // 정답
+    val correctAnswer: String,
+
+    // 해설
     val explanation: String = "",
-    val category: String = "",          // 예: "Part 2"
-    val difficulty: Int = 0,
+
+    // 문제 종류
+    val category: String = "Part 2",
+
+    // 원본 이미지
     val imagePath: String = "",
-    val questionSpeaker: String = "",   // 질문하는 사람 (예: "W-Br")
-    val answerSpeaker: String = "",     // 선택지(응답)를 말하는 사람 (예: "M-Au")
+
+    // 저장 시간
     val createdAt: Long = System.currentTimeMillis()
-)
+) {
+
+    /**
+     * 사용자가 선택한 답이 정답인지 확인
+     */
+    fun isCorrect(
+        selectedAnswer: String
+    ): Boolean {
+
+        return correctAnswer.equals(
+            selectedAnswer.trim(),
+            ignoreCase = true
+        )
+    }
+}

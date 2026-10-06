@@ -1,77 +1,33 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
-    xmlns:tools="http://schemas.android.com/tools"
-    android:id="@+id/main"
+
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    tools:context=".MainActivity">
+    android:orientation="vertical"
+    android:padding="16dp">
 
-    <ScrollView
-        android:layout_width="0dp"
-        android:layout_height="0dp"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent">
+    <!-- 문제 이미지 등록 -->
+    <Button
+        android:id="@+id/importButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="문제 이미지 등록" />
 
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:padding="16dp">
+    <!-- 랜덤 문제 가져오기 + TTS -->
+    <Button
+        android:id="@+id/speakButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="랜덤 문제 TTS" />
 
-            <Button
-                android:id="@+id/btnImport"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="32dp"
-                android:text="문제 사진 가져오기" />
+    <!-- 현재 상태 표시 -->
+    <TextView
+        android:id="@+id/statusText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:text="대기 중" />
 
-            <Button
-                android:id="@+id/btnCheck"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="저장된 문제 전체 확인 (정답·오타 점검)" />
-
-            <Button
-                android:id="@+id/btnSpeak"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="저장된 문제 랜덤으로 읽어주기" />
-
-            <Button
-                android:id="@+id/btnVoices"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="기기의 영어 음성 목록 확인 (Logcat)" />
-
-            <Button
-                android:id="@+id/btnDemo"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="화자별 목소리 테스트 (4명)" />
-
-            <Button
-                android:id="@+id/btnAudition"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="설치된 영어 음성 전부 들어보기" />
-
-            <Button
-                android:id="@+id/btnSetup"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="이 폰의 화자별 음성 설정" />
-
-            <TextView
-                android:id="@+id/tvStatus"
-                android:textIsSelectable="true"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:text="대기 중" />
-        </LinearLayout>
-    </ScrollView>
-
-</androidx.constraintlayout.widget.ConstraintLayout>
+</LinearLayout>

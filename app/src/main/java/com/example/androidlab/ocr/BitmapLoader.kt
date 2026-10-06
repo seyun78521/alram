@@ -1,45 +1,75 @@
 package com.example.androidlab.ocr
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import androidx.exifinterface.media.ExifInterface
-import java.io.ByteArrayInputStream
-import java.io.InputStream
 
 object BitmapLoader {
 
-    // 이미지를 불러오면서, 사진에 적힌 회전 정보(EXIF)를 적용해 똑바로 세워서 돌려준다
-    fun decodeUpright(input: InputStream): Bitmap {
-        val bytes = input.readBytes()
-        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-            ?: throw IllegalArgumentException("이미지를 읽을 수 없습니다")
+    /**
+     * URI에 있는 이미지를 Bitmap으로 가져온다.
+     * EXIF 방향 정보도 확인해서 사진을 올바르게 회전시킨다.
+     */
+    fun load(
+        context: Context,
+        uri: android.net.Uri
+    ): Bitmap {
 
-        val orientation = ExifInterface(ByteArrayInputStream(bytes)).getAttributeInt(
-            ExifInterface.TAG_ORIENTATION,
-            ExifInterface.ORIENTATION_NORMAL
-        )
+        val resolver = context.contentResolver
 
-        val matrix = Matrix()
-        when (orientation) {
-            ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
-            ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
-            ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
-            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.postScale(-1f, 1f)
-            ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.postScale(1f, -1f)
-            ExifInterface.ORIENTATION_TRANSPOSE -> {
-                matrix.postRotate(90f)
-                matrix.postScale(-1f, 1f)
+        // 이미지 읽기
+        val bitmap = resolver.openInputStream(uri).use { inputStream ->
+            BitmapFactory.decodeStream(inputStream)
+        } ?: throw IllegalArgumentException("이미지를 읽을 수 없습니다.")
+
+        // EXIF 방향 읽기
+        val orientation = resolver.openInputStream(uri).use { inputStream ->
+            if (inputStream != null) {
+                ExifInterface(inputStream).getAttributeInt(
+                    ExifInterface.TAG_ORIENTATION,
+                    ExifInterface.ORIENTATION_NORMAL
+                )
+            } else {
+                ExifInterface.ORIENTATION_NORMAL
             }
-            ExifInterface.ORIENTATION_TRANSVERSE -> {
-                matrix.postRotate(270f)
-                matrix.postScale(-1f, 1f)
-            }
-            else -> return bitmap // 회전 정보가 없거나 이미 똑바른 사진
         }
 
-        val rotated = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
-        if (rotated != bitmap) bitmap.recycle()
-        return rotated
+        // 회전 필요 없으면 그대로 반환
+        if (orientation == ExifInterface.ORIENTATION_NORMAL) {
+            return bitmap
+        }
+
+        val matrix = Matrix()
+
+        when (orientation) {
+
+            ExifInterface.ORIENTATION_ROTATE_90 -> {
+                matrix.postRotate(90f)
+            }
+
+            ExifInterface.ORIENTATION_ROTATE_180 -> {
+                matrix.postRotate(180f)
+            }
+
+            ExifInterface.ORIENTATION_ROTATE_270 -> {
+                matrix.postRotate(270f)
+            }
+
+            else -> {
+                return bitmap
+            }
+        }
+
+        return Bitmap.createBitmap(
+            bitmap,
+            0,
+            0,
+            bitmap.width,
+            bitmap.height,
+            matrix,
+            true
+        )
     }
 }

@@ -10,8 +10,9 @@ activityKtx = "1.8.0"
 constraintlayout = "2.1.4"
 room = "2.8.4"
 ksp = "2.3.12"
-mlkitKorean = "16.0.1"
+mlkitTextLatin = "16.0.1"
 exifinterface = "1.4.2"
+androidxLifecycle = "2.6.2"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -25,7 +26,7 @@ androidx-constraintlayout = { group = "androidx.constraintlayout", name = "const
 androidx-room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
 androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
 androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
-mlkit-text-korean = { group = "com.google.mlkit", name = "text-recognition-korean", version.ref = "mlkitKorean" }
+mlkit-text-latin = { group = "com.google.mlkit", name = "text-recognition", version.ref = "mlkitTextLatin" }
 androidx-exifinterface = { group = "androidx.exifinterface", name = "exifinterface", version.ref = "exifinterface" }
 
 [plugins]

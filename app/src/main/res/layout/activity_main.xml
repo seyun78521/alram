@@ -17,20 +17,20 @@
         android:orientation="vertical"
         android:padding="24dp">
 
-        <!-- 문제 이미지 등록 -->
+        <!-- 문제 이미지 등록: 누르면 사진 선택 창이 열린다 -->
         <Button
             android:id="@+id/importButton"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="문제 이미지 등록" />
 
-        <!-- 랜덤 문제 가져오기 + TTS -->
+        <!-- 랜덤 문제 보기: DB에서 랜덤으로 1개 꺼내 글자로 보여준다 -->
         <Button
-            android:id="@+id/speakButton"
+            android:id="@+id/showRandomButton"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="랜덤 문제 TTS" />
+            android:text="랜덤 문제 보기" />
 
         <!-- 정답 입력 시작 (정답이 비어 있는 문제를 하나 보여준다) -->
         <Button

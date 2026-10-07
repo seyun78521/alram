@@ -3,6 +3,7 @@ package com.example.androidlab.ocr
 import com.example.androidlab.data.Question
 
 // 변환 결과를 담는 상자.
+// data class = 값을 담는 상자 전용 클래스. Java로 치면 getter, equals, toString을 자동으로 만들어 주는 클래스다.
 // questions: 만들어진 문제들 / skipped: 만들지 못한 문제와 이유
 data class ParseResult(
     val questions: List<Question>,
@@ -19,6 +20,7 @@ data class ParseResult(
 object QuestionParser {
 
     // ===== 글자 모양을 찾는 규칙 (정규식, Regex) =====
+    // 정규식 = "이런 모양의 글자를 찾아라"라고 적은 패턴. """...""" 는 \ 를 두 번 쓰지 않아도 되는 긴 문자열이다.
 
     // 문제 번호 줄: "19", "20.", "21)" 처럼 숫자만 있는 줄
     private val numberRegex = Regex("""^\s*\d{1,2}\s*[.)]?\s*$""")
@@ -102,13 +104,14 @@ object QuestionParser {
             .joinToString(" ")                                            // 공백으로 이어붙이기
         if (questionText.isBlank()) return null
 
-        // 정답은 비워 둔다 (""는 빈 문자열). 나중에 사람이 입력한다.
+        // 정답과 해설은 비워 둔다 (""는 빈 문자열). 정답은 나중에 사람이 입력한다.
         return Question(
             questionText = questionText,
             choiceA = choices.getValue("A"),
             choiceB = choices.getValue("B"),
             choiceC = choices.getValue("C"),
-            correctAnswer = ""
+            correctAnswer = "",
+            explanation = ""
         )
     }
 }

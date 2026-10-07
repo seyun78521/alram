@@ -8,45 +8,44 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.example.androidlab.data.AppDatabase
-import com.example.androidlab.data.LocalQuestionProvider
 import com.example.androidlab.data.Question
 import com.example.androidlab.ocr.QuestionImporter
-import com.example.androidlab.tts.QuestionReader
 import kotlinx.coroutines.launch
 
 // 시험용 임시 화면. 팀 화면이 만들어지면 이 파일은 대체된다.
+// 흐름: 사진 등록(OCR → 저장) → 정답 입력 → 랜덤 문제 보기
+//
+// 참고: lifecycleScope.launch { ... } = "화면이 살아 있는 동안만 도는 백그라운드 작업"을 시작한다.
+//       화면이 닫히면 자동으로 취소된다. DB와 OCR은 오래 걸려서 반드시 이 안에서 불러야 한다.
 class MainActivity : AppCompatActivity() {
 
-    // lateinit = "지금은 비어 있지만 onCreate에서 반드시 채운다"는 약속
+    // lateinit = "지금은 비어 있지만 onCreate에서 반드시 채운다"는 약속 (Java에서 나중에 초기화하는 필드)
     private lateinit var importer: QuestionImporter // 사진 → 문제 저장
-    private lateinit var reader: QuestionReader     // 문제 → 소리
     private lateinit var statusText: TextView       // 결과를 보여주는 글자칸
 
-    // [추가] 지금 정답을 입력받고 있는 문제. 없으면 null.
+    // 지금 정답을 입력받고 있는 문제. 없으면 null.
+    // 타입 뒤의 ? 는 "null일 수도 있다"는 뜻이다.
     private var currentQuestion: Question? = null
 
-    // 사진 여러 장을 고르는 선택 창. 사진을 고르면 { } 안이 실행된다.
+    // 사진 여러 장을 고르는 선택 창을 준비해 둔다. 사진을 고르면 { } 안이 실행된다.
     private val pickImages =
         registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris: List<Uri> ->
             if (uris.isNotEmpty()) importQuestions(uris)
         }
 
-    // 화면이 처음 만들어질 때 한 번 실행된다
+    // 화면이 처음 만들어질 때 한 번 실행된다 (Java 안드로이드의 onCreate와 같다)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
+        setContentView(R.layout.activity_main) // activity_main.xml 화면을 붙인다
 
         importer = QuestionImporter(applicationContext)
-        reader = QuestionReader(applicationContext)
-        statusText = findViewById(R.id.statusText)
+        statusText = findViewById(R.id.statusText) // xml에서 id로 부품을 찾아 온다
 
-        // 버튼을 눌렀을 때 할 일을 연결한다
+        // 버튼을 눌렀을 때 할 일을 연결한다. { } 안은 Java의 람다와 같다.
         findViewById<Button>(R.id.importButton).setOnClickListener {
             pickImages.launch(arrayOf("image/*")) // 사진 선택 창 열기
         }
-        findViewById<Button>(R.id.speakButton).setOnClickListener { speakRandomQuestion() }
-
-        // [추가] 정답 입력 관련 버튼
+        findViewById<Button>(R.id.showRandomButton).setOnClickListener { showRandomQuestion() }
         findViewById<Button>(R.id.answerStartButton).setOnClickListener { showNextWithoutAnswer() }
         findViewById<Button>(R.id.answerAButton).setOnClickListener { saveAnswer("A") }
         findViewById<Button>(R.id.answerBButton).setOnClickListener { saveAnswer("B") }
@@ -79,10 +78,11 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // DB에서 랜덤 문제 1개를 꺼내 화면에 보여주고 소리로 읽는다
-    private fun speakRandomQuestion() {
+    // DB에서 랜덤 문제 1개를 꺼내 화면에 글자로 보여준다 (정답 포함)
+    private fun showRandomQuestion() {
         lifecycleScope.launch {
-            val question = LocalQuestionProvider(applicationContext).getQuestions(1).firstOrNull()
+            val dao = AppDatabase.getInstance(applicationContext).questionDao()
+            val question = dao.getRandom(1).firstOrNull() // 결과가 비어 있으면 null
 
             // 문제가 하나도 없으면 안내하고 끝낸다 (return@launch = 이 작업 블록을 끝냄)
             if (question == null) {
@@ -90,12 +90,13 @@ class MainActivity : AppCompatActivity() {
                 return@launch
             }
 
-            statusText.text = questionToText(question)
-            reader.read(question) // 소리로 읽기
+            // 정답이 비어 있으면 안내 글을 대신 보여준다 (ifEmpty = 비어 있을 때만 이 값을 쓴다)
+            val answer = question.correctAnswer.ifEmpty { "(아직 입력 안 함)" }
+            statusText.text = questionToText(question) + "\n\n정답: $answer"
         }
     }
 
-    // [추가] 정답이 비어 있는 문제를 하나 꺼내 화면에 보여준다
+    // 정답이 비어 있는 문제를 하나 꺼내 화면에 보여준다
     private fun showNextWithoutAnswer() {
         lifecycleScope.launch {
             val dao = AppDatabase.getInstance(applicationContext).questionDao()
@@ -110,9 +111,9 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // [추가] 지금 보여준 문제의 정답을 저장하고, 다음 문제를 보여준다
+    // 지금 보여준 문제의 정답을 저장하고, 다음 문제를 보여준다
     private fun saveAnswer(answer: String) {
-        // 보여준 문제가 없으면(null) 아무것도 하지 않고 끝낸다
+        // 보여준 문제가 없으면(null) 아무것도 하지 않고 끝낸다 (?: return = null이면 함수 종료)
         val question = currentQuestion ?: return
 
         lifecycleScope.launch {
@@ -122,14 +123,13 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // 문제를 화면에 보여줄 글로 만든다 (사진은 보여주지 않는다)
+    // 문제를 화면에 보여줄 글로 만든다
     private fun questionToText(q: Question): String =
         "${q.questionText}\n\nA. ${q.choiceA}\nB. ${q.choiceB}\nC. ${q.choiceC}"
 
-    // 화면이 닫힐 때 쓰던 도구들을 정리한다
+    // 화면이 닫힐 때 쓰던 도구를 정리한다
     override fun onDestroy() {
         importer.close()
-        reader.shutdown()
         super.onDestroy()
     }
 }

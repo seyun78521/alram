@@ -40,7 +40,6 @@ dependencies {
     implementation(libs.androidx.activity.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.core.ktx)
-    implementation(libs.androidx.constraintlayout) // 화면이 ConstraintLayout을 쓰면 필요
     implementation(libs.material)
 
     // Room (DB)

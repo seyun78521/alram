@@ -27,6 +27,9 @@ object BitmapLoader {
         )
 
         // 4) 회전 정보에 맞는 변환(Matrix)을 만든다. Matrix = 돌리기/뒤집기 규칙
+        // when = Java의 switch와 같다. orientation 값에 따라 아래 줄 중 하나가 실행된다.
+        // "값 -> 할 일" 모양이고 break가 필요 없다. else = Java의 default.
+        // postRotate(90f) = 90도 돌리기, postScale(-1f, 1f) = 좌우 뒤집기. (f는 소수(float)라는 표시)
         val matrix = Matrix()
         when (orientation) {
             ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)

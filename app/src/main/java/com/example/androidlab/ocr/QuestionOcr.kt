@@ -4,169 +4,69 @@ import android.graphics.Bitmap
 import android.graphics.Rect
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
-import com.google.mlkit.vision.text.TextRecognizer
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
-/*
- * OCR 결과의 한 줄
- *
- * text:
- *   실제 인식된 글자
- *
- * box:
- *   이미지에서 그 글자가 위치한 영역
- */
+// OCR이 읽은 줄 하나: 글자(text) + 그 줄이 사진에서 차지하는 사각형 위치(box)
+// Rect는 left, top, right, bottom 네 숫자를 가진 안드로이드 기본 클래스다.
 data class OcrLine(
     val text: String,
     val box: Rect
 )
 
-/*
- * 영어 OCR 담당
- */
+// 사진 → 글자를 읽는 클래스 (영어/Latin OCR)
 class QuestionOcr {
 
-    // 영어/Latin 문자용 OCR
-    private val recognizer: TextRecognizer =
-        TextRecognition.getClient(
-            TextRecognizerOptions.DEFAULT_OPTIONS
-        )
+    // ML Kit 글자 인식기. 한 번만 만들어 두고 계속 재사용한다.
+    private val recognizer =
+        TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
 
-    /*
-     * Bitmap -> OCR 결과
-     */
-    suspend fun recognizeLines(
-        bitmap: Bitmap
-    ): List<OcrLine> =
+    // 사진(Bitmap)을 넣으면 읽는 순서대로 정렬된 줄 목록을 돌려준다.
+    // suspend = 시간이 걸리는 함수라서 코루틴(백그라운드 작업) 안에서만 부를 수 있다.
+    // suspendCancellableCoroutine = ML Kit의 "다 끝나면 알려주기(콜백)" 방식을
+    //                               "기다렸다가 결과를 받는" 방식으로 바꿔 준다.
+    suspend fun recognizeLines(bitmap: Bitmap): List<OcrLine> =
         suspendCancellableCoroutine { continuation ->
 
-            val image =
-                InputImage.fromBitmap(
-                    bitmap,
-                    0
-                )
-
-            recognizer
-                .process(image)
+            recognizer.process(InputImage.fromBitmap(bitmap, 0))
                 .addOnSuccessListener { result ->
+                    // 글자 덩어리(block) 안의 줄(line)들을 전부 꺼내서 OcrLine으로 바꾼다.
+                    val lines = result.textBlocks
+                        .flatMap { it.lines }                 // 블록들 속의 줄들을 한 목록으로 펼치기
+                        .mapNotNull { line ->
+                            val box = line.boundingBox         // 위치가 없으면 null
+                            if (box != null && line.text.isNotBlank()) {
+                                OcrLine(line.text.trim(), box)
+                            } else null                        // 위치나 글자가 없는 줄은 버린다
+                        }
 
-                    /*
-                     * OCR 결과에서 모든 줄을 가져온다.
-                     *
-                     * 단순히 text만 가져오는 게 아니라
-                     * 위치(box)도 같이 보관한다.
-                     */
-                    val lines =
-                        result.textBlocks
-                            .flatMap { block ->
-                                block.lines
-                            }
-                            .mapNotNull { line ->
-
-                                val box =
-                                    line.boundingBox
-
-                                if (
-                                    box != null &&
-                                    line.text.isNotBlank()
-                                ) {
-
-                                    OcrLine(
-                                        text =
-                                            line.text.trim(),
-                                        box = box
-                                    )
-
-                                } else {
-                                    null
-                                }
-                            }
-
-                    /*
-                     * 2열 페이지를 읽을 수 있게
-                     * 위치를 이용해 정렬한다.
-                     */
-                    val sorted =
-                        ReadingOrder.sort(
-                            lines,
-                            bitmap.width
-                        )
-
-                    continuation.resume(
-                        sorted
-                    )
+                    // 2단 페이지를 왼쪽 단 → 오른쪽 단 순서로 정렬해서 돌려준다.
+                    continuation.resume(ReadingOrder.sort(lines, bitmap.width))
                 }
                 .addOnFailureListener { error ->
-                    continuation.resumeWithException(
-                        error
-                    )
+                    continuation.resumeWithException(error)   // 실패하면 예외로 알린다
                 }
         }
 
+    // 다 쓰고 나면 인식기를 닫는다 (메모리 정리)
     fun close() {
         recognizer.close()
     }
 }
 
-/*
- * 책처럼 2열로 되어 있는 페이지를
- *
- * 왼쪽 위 -> 아래
- * 오른쪽 위 -> 아래
- *
- * 순서로 정리한다.
- *
- * 이 기능은 네가 처음 사용했던 코드에서
- * 여러 문제를 읽을 때 사용하던 핵심 아이디어만
- * 간단하게 가져온 것이다.
- */
+// 책처럼 2단으로 된 페이지를 읽는 순서로 정렬한다: 왼쪽 단 위→아래, 그다음 오른쪽 단 위→아래
 object ReadingOrder {
 
-    fun sort(
-        lines: List<OcrLine>,
-        imageWidth: Int
-    ): List<OcrLine> {
+    fun sort(lines: List<OcrLine>, imageWidth: Int): List<OcrLine> {
+        val centerX = imageWidth / 2 // 사진 가운데 x 좌표
 
-        if (lines.isEmpty()) {
-            return emptyList()
-        }
+        // 줄의 가운데가 사진 가운데보다 왼쪽이면 왼쪽 단, 아니면 오른쪽 단
+        val (left, right) = lines.partition { it.box.centerX() < centerX }
 
-        /*
-         * 페이지 가운데를 기준으로
-         * 왼쪽/오른쪽 두 열로 나눈다.
-         */
-        val centerX =
-            imageWidth / 2
-
-        val left =
-            lines
-                .filter {
-                    it.box.centerX() < centerX
-                }
-                .sortedWith(
-                    compareBy<OcrLine> {
-                        it.box.top
-                    }.thenBy {
-                        it.box.left
-                    }
-                )
-
-        val right =
-            lines
-                .filter {
-                    it.box.centerX() >= centerX
-                }
-                .sortedWith(
-                    compareBy<OcrLine> {
-                        it.box.top
-                    }.thenBy {
-                        it.box.left
-                    }
-                )
-
-        return left + right
+        // 각 단 안에서 위에서 아래로 정렬 (높이가 같으면 왼쪽부터)
+        val order = compareBy<OcrLine>({ it.box.top }, { it.box.left })
+        return left.sortedWith(order) + right.sortedWith(order)
     }
 }

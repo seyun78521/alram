@@ -7,320 +7,94 @@ import com.example.androidlab.data.AppDatabase
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.File
 
 /*
- * 문제 이미지 여러 장을
- * OCR -> 문제 분리 -> DB 저장한다.
+ * 사진 여러 장 → OCR → 문제 분리 → DB 저장을 한 번에 해 주는 클래스.
+ * 화면(MainActivity)은 이 클래스의 importFromUris()만 부르면 된다.
  */
-class QuestionImporter(
-    private val context: Context
-) {
+class QuestionImporter(private val context: Context) {
 
-    private val dao =
-        AppDatabase
-            .getInstance(context)
-            .questionDao()
+    private val dao = AppDatabase.getInstance(context).questionDao() // DB에 문제를 넣고 빼는 도구
+    private val ocr = QuestionOcr()                                  // 사진에서 글자를 읽는 도구
 
-    private val ocr =
-        QuestionOcr()
-
-    /*
-     * 가져오기 결과
-     */
+    // 처리 결과를 담는 상자
+    // saved: 새로 저장한 문제 수 / failed: 읽지 못한 사진 / skipped: 문제로 못 만든 것
     data class Result(
         val saved: Int,
         val failed: List<String>,
         val skipped: List<String> = emptyList()
     )
 
-    /*
-     * 여러 이미지 처리
-     */
+    // ===== 사진 여러 장 처리 =====
+    // uris = 사진 파일의 주소 목록 (갤러리/파일 선택 창에서 받은 것)
+    // onProgress = 진행 상황을 알려 주는 함수 (예: "2 / 5")
+    // suspend = 오래 걸리는 작업이라 코루틴(백그라운드) 안에서만 부를 수 있다.
     suspend fun importFromUris(
         uris: List<Uri>,
-        onProgress: (
-            done: Int,
-            total: Int
-        ) -> Unit = { _, _ -> }
+        onProgress: (done: Int, total: Int) -> Unit = { _, _ -> }
     ): Result {
-
         var saved = 0
+        val failed = mutableListOf<String>()
+        val skipped = mutableListOf<String>()
 
-        val failed =
-            mutableListOf<String>()
-
-        val skipped =
-            mutableListOf<String>()
-
-        /*
-         * 이미지 한 장씩 처리한다.
-         */
-        for (
-        (index, uri)
-        in uris.withIndex()
-        ) {
-
-            onProgress(
-                index,
-                uris.size
-            )
+        // 사진을 한 장씩 처리한다. withIndex() = (번호, 값)을 같이 꺼내 준다.
+        for ((index, uri) in uris.withIndex()) {
+            onProgress(index, uris.size)
 
             try {
-
-                /*
-                 * 1. 이미지 읽기
-                 */
-                val bitmap =
-                    withContext(
-                        Dispatchers.IO
-                    ) {
-
-                        context
-                            .contentResolver
-                            .openInputStream(uri)
-                            ?.use {
-                                BitmapLoader
-                                    .decodeUpright(it)
-                            }
-                            ?: throw IllegalStateException(
-                                "이미지를 읽을 수 없습니다."
-                            )
-                    }
+                // 1) 사진 파일을 읽어서 Bitmap(사진 데이터)으로 만든다.
+                //    파일 읽기는 오래 걸리므로 Dispatchers.IO(파일용 백그라운드)에서 한다.
+                val bitmap = withContext(Dispatchers.IO) {
+                    context.contentResolver.openInputStream(uri)
+                        ?.use { BitmapLoader.decodeUpright(it) } // use = 다 쓰면 파일을 자동으로 닫는다
+                        ?: throw IllegalStateException("이미지를 읽을 수 없습니다.")
+                }
 
                 try {
-
-                    /*
-                     * 2. 한 페이지에서
-                     *    여러 문제를 OCR
-                     */
-                    val result =
-                        importFromBitmap(
-                            bitmap
-                        )
-
-                    saved +=
-                        result.saved
-
-                    skipped.addAll(
-                        result.skipped
-                    )
-
+                    // 2) 사진 한 장을 처리한다 (OCR → 분리 → 저장)
+                    val result = importFromBitmap(bitmap)
+                    saved += result.saved
+                    skipped.addAll(result.skipped)
                 } finally {
-
-                    /*
-                     * 사진이 크기 때문에
-                     * 사용 후 메모리에서 제거
-                     */
-                    bitmap.recycle()
+                    bitmap.recycle() // 큰 사진은 메모리를 많이 쓰므로 다 쓰면 바로 비운다
                 }
 
-            } catch (
-                e: CancellationException
-            ) {
-
-                throw e
-
-            } catch (
-                e: Exception
-            ) {
-
-                failed.add(
-                    "${index + 1}번째 이미지: " +
-                            (e.message
-                                ?: "알 수 없는 오류")
-                )
+            } catch (e: CancellationException) {
+                throw e // 화면이 닫혀서 작업이 취소된 경우는 그대로 중단한다
+            } catch (e: Exception) {
+                // 사진 한 장이 실패해도 멈추지 않고 이유만 적어 두고 다음 사진으로 간다
+                failed.add("${index + 1}번째 이미지: ${e.message ?: "알 수 없는 오류"}")
             }
 
-            onProgress(
-                index + 1,
-                uris.size
-            )
+            onProgress(index + 1, uris.size)
         }
 
-        return Result(
-            saved = saved,
-            failed = failed,
-            skipped = skipped
-        )
+        return Result(saved, failed, skipped)
     }
 
-    /*
-     * 페이지 한 장 처리
-     *
-     * 한 페이지 안에
-     * 문제 여러 개가 있을 수 있다.
-     */
-    private suspend fun importFromBitmap(
-        bitmap: Bitmap
-    ): Result {
+    // ===== 사진 한 장 처리 =====
+    // 한 페이지에 문제가 여러 개 있을 수 있다.
+    private suspend fun importFromBitmap(bitmap: Bitmap): Result {
+        // 1) OCR: 사진 → 읽는 순서대로 정렬된 글자 줄들
+        val lines = ocr.recognizeLines(bitmap)
 
-        /*
-         * 1. OCR
-         */
-        val lines =
-            ocr.recognizeLines(
-                bitmap
-            )
+        // 2) 파서: 줄들 → 문제 목록 (문제 문장 + A/B/C)
+        val parsed = QuestionParser.parse(lines)
 
-        /*
-         * 2. 여러 문제로 분리
-         */
-        val parsed =
-            QuestionParser.parse(
-                lines
-            )
-
-        /*
-         * 3. 문제 저장
-         */
-        var saved = 0
-
-        for (
-        question in parsed.questions
-        ) {
-
-            /*
-             * 같은 문제인지 확인
-             */
-            val duplicateCount =
-                dao.countByQuestionText(
-                    question.questionText
-                )
-
-            if (
-                duplicateCount > 0
-            ) {
-                continue
-            }
-
-            /*
-             * 문제와 함께
-             * 원본 페이지 이미지 경로 저장
-             */
-            val imagePath =
-                saveImage(bitmap)
-
-            dao.insert(
-                question.copy(
-                    imagePath = imagePath
-                )
-            )
-
-            saved++
+        // 3) 이미 저장된 문제(같은 문제 문장)는 빼고, 새 문제만 남긴다
+        val newQuestions = parsed.questions.filter {
+            dao.countByQuestionText(it.questionText) == 0
         }
 
-        return Result(
-            saved = saved,
-            failed = emptyList(),
-            skipped = parsed.skipped
-        )
+        // 4) 새 문제를 DB에 하나씩 저장한다
+        for (question in newQuestions) {
+            dao.insert(question)
+        }
+
+        return Result(newQuestions.size, emptyList(), parsed.skipped)
     }
 
-    /*
-     * 원본 이미지를
-     * 앱 내부 저장소에 저장한다.
-     */
-    private suspend fun saveImage(
-        bitmap: Bitmap
-    ): String =
-        withContext(
-            Dispatchers.IO
-        ) {
-
-            val directory =
-                File(
-                    context.filesDir,
-                    "question_images"
-                )
-
-            if (
-                !directory.exists()
-            ) {
-                directory.mkdirs()
-            }
-
-            /*
-             * 이미지마다 다른 파일 이름
-             */
-            val file =
-                File.createTempFile(
-                    "question_",
-                    ".jpg",
-                    directory
-                )
-
-            /*
-             * 너무 큰 사진은 줄인다.
-             */
-            val scaled =
-                scaleDown(
-                    bitmap,
-                    2000
-                )
-
-            file.outputStream()
-                .use { output ->
-
-                    scaled.compress(
-                        Bitmap.CompressFormat.JPEG,
-                        85,
-                        output
-                    )
-                }
-
-            if (
-                scaled != bitmap
-            ) {
-                scaled.recycle()
-            }
-
-            file.absolutePath
-        }
-
-    /*
-     * 긴 변이 2000px보다 크면 축소
-     */
-    private fun scaleDown(
-        bitmap: Bitmap,
-        maxSide: Int
-    ): Bitmap {
-
-        val longest =
-            maxOf(
-                bitmap.width,
-                bitmap.height
-            )
-
-        if (
-            longest <= maxSide
-        ) {
-            return bitmap
-        }
-
-        val ratio =
-            maxSide.toFloat() /
-                    longest.toFloat()
-
-        val width =
-            (bitmap.width * ratio)
-                .toInt()
-
-        val height =
-            (bitmap.height * ratio)
-                .toInt()
-
-        return Bitmap.createScaledBitmap(
-            bitmap,
-            width,
-            height,
-            true
-        )
-    }
-
-    /*
-     * OCR 리소스 종료
-     */
+    // 다 쓰면 OCR 도구를 닫는다 (화면이 닫힐 때 부른다)
     fun close() {
         ocr.close()
     }

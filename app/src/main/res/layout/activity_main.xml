@@ -1,33 +1,83 @@
 <?xml version="1.0" encoding="utf-8"?>
-
-<LinearLayout
+<!-- ScrollView = 내용이 화면보다 길면 스크롤이 되는 바깥 틀.
+     fitsSystemWindows = 상태바/내비게이션 바 밑으로 내용이 들어가지 않게 자동으로 여백을 준다.
+     fillViewport = 내용이 짧아도 화면 전체 높이를 채운다 (그래야 아래의 "가운데 정렬"이 동작한다). -->
+<ScrollView
     xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:padding="16dp">
+    android:fillViewport="true"
+    android:fitsSystemWindows="true">
 
-    <!-- 문제 이미지 등록 -->
-    <Button
-        android:id="@+id/importButton"
+    <!-- 세로로 쌓는 화면. gravity="center" = 안의 내용을 화면 가운데로 모은다 -->
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="문제 이미지 등록" />
+        android:gravity="center"
+        android:orientation="vertical"
+        android:padding="24dp">
 
-    <!-- 랜덤 문제 가져오기 + TTS -->
-    <Button
-        android:id="@+id/speakButton"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:text="랜덤 문제 TTS" />
+        <!-- 문제 이미지 등록 -->
+        <Button
+            android:id="@+id/importButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="문제 이미지 등록" />
 
-    <!-- 현재 상태 표시 -->
-    <TextView
-        android:id="@+id/statusText"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:text="대기 중" />
+        <!-- 랜덤 문제 가져오기 + TTS -->
+        <Button
+            android:id="@+id/speakButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="랜덤 문제 TTS" />
 
-</LinearLayout>
+        <!-- 정답 입력 시작 (정답이 비어 있는 문제를 하나 보여준다) -->
+        <Button
+            android:id="@+id/answerStartButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="정답 입력 시작" />
+
+        <!-- 정답 버튼 A / B / C 를 가로로 나란히 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="horizontal">
+
+            <!-- layout_weight="1" = 남는 가로 공간을 똑같이 나눠 가진다 -->
+            <Button
+                android:id="@+id/answerAButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="A" />
+
+            <Button
+                android:id="@+id/answerBButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="B" />
+
+            <Button
+                android:id="@+id/answerCButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="C" />
+        </LinearLayout>
+
+        <!-- 현재 상태 표시. 글자도 가운데 정렬 -->
+        <TextView
+            android:id="@+id/statusText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:gravity="center"
+            android:text="대기 중" />
+
+    </LinearLayout>
+</ScrollView>

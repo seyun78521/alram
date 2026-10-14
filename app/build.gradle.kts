@@ -12,7 +12,7 @@ android {
 
     defaultConfig {
         applicationId = "com.example.androidlab"
-        minSdk = 24      // 이 버전보다 낮은 안드로이드에서는 설치 불가
+        minSdk = 28      // 이 버전보다 낮은 안드로이드에서는 설치 불가
         targetSdk = 37
         versionCode = 1
         versionName = "1.0"

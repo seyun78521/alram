@@ -19,56 +19,120 @@ data class ParseResult(
  */
 object QuestionParser {
 
-    // ===== 글자 모양을 찾는 규칙 (정규식, Regex) =====
-    // 정규식 = "이런 모양의 글자를 찾아라"라고 적은 패턴. """...""" 는 \ 를 두 번 쓰지 않아도 되는 긴 문자열이다.
+    // ===== 정규식 (Regex) 읽는 법 =====
+    // 정규식 = "이런 모양의 글자를 찾아라"라고 적은 패턴이다.
+    //   ^      줄의 맨 앞            $      줄의 맨 끝
+    //   \d     숫자 한 글자(0~9)     \s     공백 한 글자
+    //   [ABC]  A, B, C 중 한 글자    [A-Za-z] 영어 알파벳 한 글자
+    //   *      바로 앞의 것이 0번 이상 반복
+    //   ?      바로 앞의 것이 있어도 되고 없어도 됨
+    //   {1,2}  바로 앞의 것이 1번~2번 반복
+    // """...""" 는 \ 를 두 번 쓰지 않아도 되는 긴 문자열이다.
 
     // 문제 번호 줄: "19", "20.", "21)" 처럼 숫자만 있는 줄
+    //   ^\s*      앞쪽 공백이 있어도 됨
+    //   \d{1,2}   숫자 1~2개
+    //   \s*[.)]?  뒤에 "." 또는 ")" 가 하나 있어도 되고 없어도 됨
+    //   \s*$      뒤쪽 공백이 있어도 되고 줄 끝
     private val numberRegex = Regex("""^\s*\d{1,2}\s*[.)]?\s*$""")
 
-    // 화자 표시: "M-Cn", "W-Br" 같은 것 (문제 문장에서 지운다)
+    // 화자 표시: "M-Cn", "W-Br", "M-Au" 처럼 줄 맨 앞에 붙는 것 (문제 문장에서 지운다)
+    //   [MW]        M 또는 W
+    //   [A-Za-z]{2,3}  영어 글자 2~3개
     private val speakerRegex = Regex("""^[MW]-[A-Za-z]{2,3}\s*""")
-
-    // 선택지 줄: "(A) 내용", "A) 내용", "A. 내용", "M-Au (A) 내용"
-    // 첫 번째 그룹 = 알파벳(A/B/C), 두 번째 그룹 = 내용
-    // 알파벳 뒤에 ")" 또는 "."이 꼭 있어야 한다. (없으면 "A very nice day" 같은 문장도 선택지로 착각한다)
-    private val choiceRegex =
-        Regex("""^\s*(?:[MW]-[A-Za-z]{2,3}\s+)?\(?([ABC])[).]\s*(.+)$""")
 
     // ===== 작은 도우미 함수들 =====
 
     // 이 줄이 문제 번호인가?
     private fun isQuestionNumber(text: String): Boolean = numberRegex.matches(text)
 
+    // 글 맨 앞의 화자 표시와 그 뒤 공백을 지운 글을 돌려준다. 표시가 없으면 그대로 돌려준다.
+    // replaceFirst = 처음 찾은 한 곳만 바꾼다. 여기서는 "" (빈 글자)로 바꿔서 지우는 것이다.
+    private fun removeSpeaker(text: String): String =
+        text.trim().replaceFirst(speakerRegex, "").trim()
+
+    // ===== 선택지 판별 (이 부분만 정규식 대신 if로 풀어 썼다) =====
     // 이 줄이 선택지면 ("A" to "내용") 형태로, 아니면 null을 돌려준다.
-    // 타입 뒤의 ? 는 "null일 수도 있다"는 뜻이다.
+    // (타입 뒤의 ? 는 "null일 수도 있다"는 뜻. Pair = 값 2개를 묶은 것)
+    //
+    // 인정하는 모양:  (A) 내용   A) 내용   A. 내용   M-Au (A) 내용
+    // 주의: 알파벳 뒤에 ")" 또는 "."이 꼭 있어야 한다.
+    //       (없으면 "A very nice day" 같은 보통 문장도 선택지로 착각한다)
     private fun parseChoice(text: String): Pair<String, String>? {
-        val match = choiceRegex.matchEntire(text.trim()) ?: return null // ?: 는 "왼쪽이 null이면 오른쪽 실행"
-        return match.groupValues[1] to match.groupValues[2].trim()
+        // 1) 맨 앞에 화자 표시가 있으면 떼어 낸다. 예: "M-Au (A) 내용" → "(A) 내용"
+        var s = removeSpeaker(text)
+
+        // 2) "(" 로 시작하면 그 한 글자를 건너뛴다. 예: "(A) 내용" → "A) 내용"
+        if (s.startsWith("(")) {
+            s = s.substring(1)
+        }
+
+        // 3) 최소 3글자(예: "A.x")가 있어야 한다
+        if (s.length < 3) return null
+
+        // 4) 첫 글자가 A, B, C 중 하나인가?
+        val letter = s[0]
+        if (letter != 'A' && letter != 'B' && letter != 'C') return null
+
+        // 5) 둘째 글자가 ")" 또는 "." 인가?
+        if (s[1] != ')' && s[1] != '.') return null
+
+        // 6) 셋째 글자부터 끝까지가 선택지 내용이다
+        val content = s.substring(2).trim()
+        if (content.isEmpty()) return null
+
+        return letter.toString() to content
     }
 
-    // OCR 글자를 아주 조금만 정리한다 (세로선 | → I, 굽은 따옴표 → 보통 따옴표, 공백 정리)
-    private fun cleanEnglish(text: String): String =
-        text.replace("|", "I")
+    // ===== OCR 글자 정리 =====
+    //  - 세로선 "|" 는 대문자 I로 잘못 읽힌 것이므로 "I"로 바꾼다
+    //  - 굽은 따옴표 ’ 는 보통 따옴표 ' 로 바꾼다
+    //  - 공백이 여러 개 연속이면 하나로 줄인다
+    private fun cleanEnglish(text: String): String {
+        val replaced = text
+            .replace("|", "I")
             .replace('’', '\'')
-            .replace(Regex("\\s+"), " ")
-            .trim()
+
+        // 공백, 탭, 줄바꿈을 기준으로 단어를 쪼갠다. 연속 공백 사이에는 빈 조각이 생긴다.
+        val pieces = replaced.split(' ', '\t', '\n', '\r')
+
+        // 빈 조각은 버리고, 남은 단어들을 공백 하나로 다시 이어 붙인다
+        val words = mutableListOf<String>() // mutable = 나중에 add 할 수 있는 목록
+        for (piece in pieces) {
+            if (piece.isNotEmpty()) {
+                words.add(piece)
+            }
+        }
+        return words.joinToString(" ")
+    }
 
     // ===== 1단계: 페이지 전체를 문제 단위로 나눈다 =====
     fun parse(lines: List<OcrLine>): ParseResult {
-        // 문제 번호가 있는 줄의 위치(인덱스)를 모두 찾는다. 예: [0, 7, 14]
-        val starts = lines.indices.filter { isQuestionNumber(lines[it].text) }
+        // 문제 번호가 있는 줄의 위치(인덱스)를 모두 모은다. 예: [0, 7, 14]
+        val starts = mutableListOf<Int>()
+        for (i in lines.indices) { // lines.indices = 0부터 lines.size - 1 까지
+            if (isQuestionNumber(lines[i].text)) {
+                starts.add(i)
+            }
+        }
+
         if (starts.isEmpty()) {
             return ParseResult(emptyList(), listOf("문제 번호를 찾지 못했습니다."))
         }
 
-        val questions = mutableListOf<Question>() // mutable = 나중에 add 할 수 있는 목록
+        val questions = mutableListOf<Question>()
         val skipped = mutableListOf<String>()
 
+        // 문제 번호 위치마다 반복한다. (index = 몇 번째 번호인지, start = 그 번호 줄의 위치)
         for ((index, start) in starts.withIndex()) {
-            // 이 문제의 끝 = 다음 문제 번호 바로 앞 (마지막 문제면 페이지 끝)
-            val end = starts.getOrNull(index + 1) ?: lines.size
 
-            // 번호 줄 다음부터 end 전까지가 이 문제의 줄들
+            // 이 문제의 끝 = 다음 문제 번호 바로 앞. 마지막 문제면 페이지 끝까지.
+            var end = lines.size
+            if (index + 1 < starts.size) {
+                end = starts[index + 1]
+            }
+
+            // 번호 줄 다음부터 end 전까지가 이 문제의 줄들이다. (subList = 부분 목록)
             val question = parseBlock(lines.subList(start + 1, end))
 
             if (question != null) {
@@ -83,28 +147,61 @@ object QuestionParser {
     // ===== 2단계: 문제 하나(줄 묶음)를 Question으로 만든다 =====
     // 만들 수 없으면 null을 돌려준다.
     private fun parseBlock(lines: List<OcrLine>): Question? {
+
         // 선택지 내용을 담는 지도(Map). 예: "A" → "The bookstore is closed."
+        // Map = 이름표(키)로 값을 찾는 목록. Java의 HashMap과 같다.
         val choices = mutableMapOf<String, String>()
         var firstChoice = -1 // 첫 번째 선택지가 몇 번째 줄인지 (-1 = 아직 못 찾음)
 
-        for ((i, line) in lines.withIndex()) {
-            val choice = parseChoice(line.text) ?: continue // 선택지가 아니면 다음 줄로
-            if (choice.first in choices) continue            // 같은 알파벳이 또 나오면 첫 번째만 쓴다
-            choices[choice.first] = cleanEnglish(choice.second)
-            if (firstChoice == -1) firstChoice = i
+        // 줄을 위에서 아래로 하나씩 보면서 선택지를 찾는다
+        for (i in lines.indices) {
+            val choice = parseChoice(lines[i].text)
+
+            // 선택지가 아니면 다음 줄로 넘어간다 (continue = Java와 같다)
+            if (choice == null) continue
+
+            val letter = choice.first   // "A" / "B" / "C"
+            val content = choice.second // 선택지 내용
+
+            // 같은 알파벳이 또 나오면 첫 번째만 쓴다 (예: 아래쪽 한글 번역 줄)
+            if (choices.containsKey(letter)) continue
+
+            choices[letter] = cleanEnglish(content)
+
+            // 가장 처음 발견한 선택지의 줄 번호를 기억한다
+            if (firstChoice == -1) {
+                firstChoice = i
+            }
         }
 
         // Part 2는 A, B, C가 모두 있어야 한다. 하나라도 없으면 포기(null).
-        if ("A" !in choices || "B" !in choices || "C" !in choices) return null
+        if (!choices.containsKey("A") || !choices.containsKey("B") || !choices.containsKey("C")) {
+            return null
+        }
 
-        // 문제 문장 = 첫 번째 선택지 위쪽의 줄들을 이어붙인 것
-        val questionText = lines.subList(0, firstChoice)
-            .map { cleanEnglish(it.text.replaceFirst(speakerRegex, "")) } // 화자 표시 지우고 정리
-            .filter { it.isNotBlank() }                                   // 빈 줄 버리기
-            .joinToString(" ")                                            // 공백으로 이어붙이기
-        if (questionText.isBlank()) return null
+        // 문제 문장 = 첫 번째 선택지 위쪽 줄들을 이어 붙인 것
+        // StringBuilder = 글자를 계속 이어 붙이는 도구 (Java의 StringBuilder와 같다)
+        val questionBuilder = StringBuilder()
+        for (i in 0 until firstChoice) { // 0 until n = 0부터 n-1 까지
+            // 화자 표시를 지우고 글자를 정리한다
+            val lineText = cleanEnglish(removeSpeaker(lines[i].text))
+
+            // 빈 줄은 건너뛴다
+            if (lineText.isEmpty()) continue
+
+            // 이미 앞에 글이 있으면 사이에 공백 하나를 넣는다
+            if (questionBuilder.isNotEmpty()) {
+                questionBuilder.append(" ")
+            }
+            questionBuilder.append(lineText)
+        }
+        val questionText = questionBuilder.toString()
+
+        // 문제 문장이 비어 있으면 포기
+        if (questionText.isEmpty()) return null
 
         // 정답과 해설은 비워 둔다 (""는 빈 문자열). 정답은 나중에 사람이 입력한다.
+        // choices.getValue("A") = 지도에서 "A"의 값을 꺼낸다. 위에서 A, B, C가 있는 것을 확인했으므로 안전하다.
         return Question(
             questionText = questionText,
             choiceA = choices.getValue("A"),

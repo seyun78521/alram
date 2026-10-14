@@ -51,13 +51,7 @@ object QuestionParser {
     private fun removeSpeaker(text: String): String =
         text.trim().replaceFirst(speakerRegex, "").trim()
 
-    // ===== 선택지 판별 (이 부분만 정규식 대신 if로 풀어 썼다) =====
-    // 이 줄이 선택지면 ("A" to "내용") 형태로, 아니면 null을 돌려준다.
-    // (타입 뒤의 ? 는 "null일 수도 있다"는 뜻. Pair = 값 2개를 묶은 것)
-    //
-    // 인정하는 모양:  (A) 내용   A) 내용   A. 내용   M-Au (A) 내용
-    // 주의: 알파벳 뒤에 ")" 또는 "."이 꼭 있어야 한다.
-    //       (없으면 "A very nice day" 같은 보통 문장도 선택지로 착각한다)
+    // 선택지 판별만 정규식 대신 if
     private fun parseChoice(text: String): Pair<String, String>? {
         // 1) 맨 앞에 화자 표시가 있으면 떼어 낸다. 예: "M-Au (A) 내용" → "(A) 내용"
         var s = removeSpeaker(text)
@@ -77,7 +71,7 @@ object QuestionParser {
         // 5) 둘째 글자가 ")" 또는 "." 인가?
         if (s[1] != ')' && s[1] != '.') return null
 
-        // 6) 셋째 글자부터 끝까지가 선택지 내용이다
+        // 6) 4,5번이 모두 아니라면 셋째 글자부터 끝까지가 선택지 내용이다
         val content = s.substring(2).trim()
         if (content.isEmpty()) return null
 
@@ -195,7 +189,20 @@ object QuestionParser {
             }
             questionBuilder.append(lineText)
         }
-        val questionText = questionBuilder.toString()
+
+        // OCR이 선택지 표시 "(A)", "(B" 를 질문 끝에 붙여 읽은 경우가 있어서 그것을 지운다.
+        //   1) "(A", "(B", "(C" 를 먼저 지워서 알파벳까지 같이 없앤다
+        //   2) 그다음 남은 ")" 를 지운다 (예: "(A)" 의 닫는 괄호)
+        // replace("찾을 글자", "바꿀 글자") = 모두 찾아서 바꾼다.
+        // 지운 뒤 공백이 두 칸으로 남을 수 있어서 cleanEnglish 를 한 번 더 거친다.
+        // 예: "(A How will we get this order filled in time?" → "How will we get this order filled in time?"
+        val questionText = cleanEnglish(
+            questionBuilder.toString()
+                .replace("(A", "")
+                .replace("(B", "")
+                .replace("(C", "")
+                .replace(")", "")
+        )
 
         // 문제 문장이 비어 있으면 포기
         if (questionText.isEmpty()) return null

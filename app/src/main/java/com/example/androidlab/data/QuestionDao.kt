@@ -15,17 +15,15 @@ interface QuestionDao {
     @Insert
     suspend fun insert(question: Question)
 
-    // 문제를 랜덤으로 count개 꺼낸다. (RANDOM() = 무작위로 섞기, LIMIT = 앞에서 count개만)
-    @Query("SELECT * FROM questions ORDER BY RANDOM() LIMIT :count")
-    suspend fun getRandom(count: Int): List<Question>
+    // 정답이 이미 입력된 문제 중에서 랜덤으로 1개를 꺼낸다. 없으면 null.
+    @Query("SELECT * FROM questions WHERE correctAnswer != '' ORDER BY RANDOM() LIMIT 1")
+    suspend fun getRandomWithAnswer(): Question?
 
     // 같은 문제 문장이 이미 저장되어 있는지 센다. (0이면 없음 → 중복 확인에 쓴다)
     @Query("SELECT COUNT(*) FROM questions WHERE questionText = :text")
     suspend fun countByQuestionText(text: String): Int
 
     // 정답이 아직 비어 있는 문제를 1개 꺼낸다. 없으면 null.
-    // 정답을 입력하면 더 이상 비어 있지 않으므로, 다음에 부르면 다음 문제가 나온다.
-    // (타입 뒤의 ? 는 "null일 수도 있다"는 뜻)
     @Query("SELECT * FROM questions WHERE correctAnswer = '' ORDER BY id LIMIT 1")
     suspend fun getNextWithoutAnswer(): Question?
 

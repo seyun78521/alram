@@ -24,14 +24,6 @@
             android:layout_height="wrap_content"
             android:text="문제 이미지 등록" />
 
-        <!-- 랜덤 문제 보기: DB에서 랜덤으로 1개 꺼내 글자로 보여준다 -->
-        <Button
-            android:id="@+id/showRandomButton"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="랜덤 문제 보기" />
-
         <!-- 정답 입력 시작 (정답이 비어 있는 문제를 하나 보여준다) -->
         <Button
             android:id="@+id/answerStartButton"
@@ -40,7 +32,16 @@
             android:layout_marginTop="8dp"
             android:text="정답 입력 시작" />
 
-        <!-- 정답 버튼 A / B / C 를 가로로 나란히 -->
+        <!-- 문제 풀기 (정답이 입력된 문제를 랜덤으로 하나 보여준다) -->
+        <Button
+            android:id="@+id/solveButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="문제 풀기" />
+
+        <!-- 정답 버튼 A / B / C 를 가로로 나란히
+             (정답 입력 중에는 "정답 저장", 문제 풀기 중에는 "내 답 선택"으로 쓰인다) -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

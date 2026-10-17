@@ -15,7 +15,13 @@ interface QuestionDao {
     @Insert
     suspend fun insert(question: Question)
 
+    // 저장된 문제 전체를 저장된 순서(id 순)로 꺼낸다. (해설 짝 확인용)
+    @Query("SELECT * FROM questions ORDER BY id")
+    suspend fun getAll(): List<Question>
+
     // 정답이 이미 입력된 문제 중에서 랜덤으로 1개를 꺼낸다. 없으면 null.
+    // != '' 는 "비어 있지 않다"는 뜻이다. (문제 풀기에 쓴다)
+    // (타입 뒤의 ? 는 "null일 수도 있다"는 뜻)
     @Query("SELECT * FROM questions WHERE correctAnswer != '' ORDER BY RANDOM() LIMIT 1")
     suspend fun getRandomWithAnswer(): Question?
 
@@ -24,6 +30,7 @@ interface QuestionDao {
     suspend fun countByQuestionText(text: String): Int
 
     // 정답이 아직 비어 있는 문제를 1개 꺼낸다. 없으면 null.
+    // 정답을 입력하면 더 이상 비어 있지 않으므로, 다음에 부르면 다음 문제가 나온다.
     @Query("SELECT * FROM questions WHERE correctAnswer = '' ORDER BY id LIMIT 1")
     suspend fun getNextWithoutAnswer(): Question?
 

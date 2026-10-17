@@ -15,14 +15,19 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-// 시험용 임시 화면. 팀 화면이 만들어지면 이 파일은 대체된다.
-// 흐름: 사진 등록(OCR → 저장) → 정답 입력 → 문제 풀기(읽기 → 3초 대기 → 정오답 표시)
-//
-// 참고: lifecycleScope.launch { ... } = "화면이 살아 있는 동안만 도는 백그라운드 작업"을 시작한다.
-//       화면이 닫히면 자동으로 취소된다. DB, OCR, TTS는 오래 걸려서 반드시 이 안에서 불러야 한다.
+/*
+ * 시험용 임시 화면. 팀 화면이 만들어지면 이 파일은 대체된다.
+ * 흐름: 사진 등록(OCR → 저장) → 정답 입력 → 문제 풀기(읽기 → 3초 대기 → 정오답 표시)
+ *
+ * 이 파일에 나오는 Kotlin 표기
+ *  - lifecycleScope.launch { ... } = "화면이 살아 있는 동안만 도는 백그라운드 작업"을 시작한다.
+ *      화면이 닫히면 자동으로 취소된다. DB, OCR, TTS는 오래 걸려서 반드시 이 안에서 불러야 한다.
+ *  - 타입 뒤의 ? (예: Question?) = null일 수도 있다는 뜻
+ *  - lateinit = "지금은 비어 있지만 onCreate에서 반드시 채운다"는 약속
+ *  - { } 로 쓰는 코드 = Java의 람다
+ */
 class MainActivity : AppCompatActivity() {
 
-    // lateinit = "지금은 비어 있지만 onCreate에서 반드시 채운다"는 약속 (Java에서 나중에 초기화하는 필드)
     private lateinit var importer: QuestionImporter // 사진 → 문제 저장
     private lateinit var reader: QuestionReader     // 문제 → 소리
     private lateinit var statusText: TextView       // 결과를 보여주는 글자칸
@@ -33,7 +38,6 @@ class MainActivity : AppCompatActivity() {
     private var isSolving = false
 
     // 정답 입력 모드에서 지금 보여 주고 있는 문제. 없으면 null.
-    // 타입 뒤의 ? 는 "null일 수도 있다"는 뜻이다.
     private var currentQuestion: Question? = null
 
     // 문제 풀기 모드에서 지금 푸는 문제와, 사용자가 마지막으로 고른 답("A"/"B"/"C", 안 골랐으면 "")
@@ -62,11 +66,12 @@ class MainActivity : AppCompatActivity() {
         reader = QuestionReader(applicationContext)
         statusText = findViewById(R.id.statusText) // xml에서 id로 부품을 찾아 온다
 
-        // 버튼을 눌렀을 때 할 일을 연결한다. { } 안은 Java의 람다와 같다.
+        // 버튼을 눌렀을 때 할 일을 연결한다.
         findViewById<Button>(R.id.importButton).setOnClickListener {
             stopSolving() // 읽는 중이었다면 멈춘다
             pickImages.launch(arrayOf("image/*")) // 사진 선택 창 열기
         }
+        findViewById<Button>(R.id.explanationCheckButton).setOnClickListener { showAllWithExplanation() }
         findViewById<Button>(R.id.answerStartButton).setOnClickListener { showNextWithoutAnswer() }
         findViewById<Button>(R.id.solveButton).setOnClickListener { startSolving() }
 
@@ -76,7 +81,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.answerCButton).setOnClickListener { onChoiceClick("C") }
     }
 
-    // 사진 → OCR → DB 저장. 오래 걸리므로 lifecycleScope.launch(백그라운드 작업) 안에서 한다.
+    // 사진 → OCR → DB 저장
     private fun importQuestions(uris: List<Uri>) {
         lifecycleScope.launch {
             statusText.text = "문제 등록 중..."
@@ -99,6 +104,37 @@ class MainActivity : AppCompatActivity() {
                     append("\n\n[문제 인식 실패]\n${result.skipped.joinToString("\n")}")
                 }
             }
+        }
+    }
+
+    // 임시: 저장된 문제 전체를 "문제 / A B C / 정답 / 해설" 순서로 글자로 보여 준다.
+    // 해설이 그 문제의 해설이 맞는지 눈으로 대조하는 용도다.
+    private fun showAllWithExplanation() {
+        stopSolving() // 읽는 중이었다면 멈춘다
+        lifecycleScope.launch {
+            val dao = AppDatabase.getInstance(applicationContext).questionDao()
+            val all = dao.getAll() // 저장된 순서(id 순)
+
+            if (all.isEmpty()) {
+                statusText.text = "저장된 문제가 없습니다."
+                return@launch // return@launch = 이 작업 블록을 끝냄
+            }
+
+            // 해설이 채워진 문제가 몇 개인지 센다
+            var withExplanation = 0
+            for (q in all) {
+                if (q.explanation.isNotEmpty()) withExplanation++
+            }
+
+            val sb = StringBuilder("전체 ${all.size}개 / 해설 있음 ${withExplanation}개\n\n")
+            for (q in all) {
+                sb.append("[${q.id}] ${q.questionText}\n")
+                sb.append("A. ${q.choiceA}\nB. ${q.choiceB}\nC. ${q.choiceC}\n")
+                sb.append("정답: ${q.correctAnswer.ifEmpty { "(미입력)" }}\n") // ifEmpty = 비어 있을 때만 이 값을 쓴다
+                sb.append("해설: ${q.explanation.ifEmpty { "(없음)" }}\n")
+                sb.append("--------------------\n")
+            }
+            statusText.text = sb.toString()
         }
     }
 
@@ -163,7 +199,7 @@ class MainActivity : AppCompatActivity() {
             // 정답이 입력된 문제가 하나도 없으면 안내하고 끝낸다
             if (question == null) {
                 statusText.text = "정답이 입력된 문제가 없습니다. 먼저 정답을 입력하세요"
-                return@launch // return@launch = 이 작업 블록을 끝냄
+                return@launch
             }
 
             showSolveScreen("읽는 중... (A / B / C 를 골라도 됩니다)")
@@ -195,8 +231,6 @@ class MainActivity : AppCompatActivity() {
         if (solvingQuestion == null || isConfirmed) return
 
         selectedAnswer = letter
-        // 지금이 읽는 중인지, 3초 대기 중인지에 따라 안내 글이 달라야 하지만
-        // 간단하게 하려고 같은 안내 글을 쓴다.
         showSolveScreen("답을 골라 주세요 (마지막에 고른 답으로 확정됩니다)")
     }
 
@@ -204,7 +238,6 @@ class MainActivity : AppCompatActivity() {
     private fun showSolveScreen(guide: String) {
         val question = solvingQuestion ?: return
 
-        // 고른 답이 없으면 "(아직 안 골랐음)" 을 보여 준다 (ifEmpty = 비어 있을 때만 이 값을 쓴다)
         val selected = selectedAnswer.ifEmpty { "(아직 안 골랐음)" }
         statusText.text = guide + "\n\n" + questionToText(question) + "\n\n선택한 답: $selected"
     }

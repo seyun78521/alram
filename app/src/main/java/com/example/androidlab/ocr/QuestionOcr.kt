@@ -3,7 +3,10 @@ package com.example.androidlab.ocr
 import android.graphics.Bitmap
 import android.graphics.Rect
 import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.Text
 import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.TextRecognizer
+import com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
@@ -18,24 +21,36 @@ data class OcrLine(
     val box: Rect
 )
 
-// 사진 → 글자를 읽는 클래스 (영어/Latin OCR)
+// 사진 → 글자를 읽는 클래스
+//   latinRecognizer  : 영어 전용 인식기 (문제와 A/B/C 읽기)
+//   koreanRecognizer : 한국어 인식기 (해설 읽기. 한국어 인식기는 영어도 같이 읽는다)
 class QuestionOcr {
 
-    // ML Kit 글자 인식기. 한 번만 만들어 두고 계속 재사용한다.
-    private val recognizer =
+    // ML Kit 글자 인식기 두 개. 한 번만 만들어 두고 계속 재사용한다.
+    private val latinRecognizer =
         TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+    private val koreanRecognizer =
+        TextRecognition.getClient(KoreanTextRecognizerOptions.Builder().build())
 
-    // 사진(Bitmap)을 넣으면 읽는 순서대로 정렬된 줄 목록을 돌려준다.
+    // 영어 인식기로 사진을 읽는다. 읽는 순서대로 정렬된 줄 목록을 돌려준다.
+    suspend fun recognizeLines(bitmap: Bitmap): List<OcrLine> =
+        recognizeWith(latinRecognizer, bitmap)
+
+    // 한국어 인식기로 사진을 읽는다. 영어 줄도 섞여 나온다. 읽는 순서대로 정렬해서 돌려준다.
+    suspend fun recognizeKoreanLines(bitmap: Bitmap): List<OcrLine> =
+        recognizeWith(koreanRecognizer, bitmap)
+
+    // 인식기 하나와 사진을 받아서 읽는 순서대로 정렬된 줄 목록을 돌려준다.
     // suspend = 시간이 걸리는 함수라서 코루틴(백그라운드 작업) 안에서만 부를 수 있다.
     // suspendCancellableCoroutine = ML Kit의 "다 끝나면 알려주기(콜백)" 방식을
     //                               "기다렸다가 결과를 받는" 방식으로 바꿔 준다.
     // { continuation -> ... } 는 "이름 없는 함수(람다)"다. Java의 (continuation) -> { ... } 와 같다.
     // continuation.resume(값) = "기다리던 쪽에 결과를 전달하고 다시 깨운다"
-    suspend fun recognizeLines(bitmap: Bitmap): List<OcrLine> =
+    private suspend fun recognizeWith(recognizer: TextRecognizer, bitmap: Bitmap): List<OcrLine> =
         suspendCancellableCoroutine { continuation ->
 
             recognizer.process(InputImage.fromBitmap(bitmap, 0))
-                .addOnSuccessListener { result ->
+                .addOnSuccessListener { result: Text ->
                     // 글자 덩어리(block) 안의 줄(line)들을 전부 꺼내서 OcrLine으로 바꾼다.
                     val lines = result.textBlocks
                         .flatMap { it.lines }                 // 블록들 속의 줄들을 한 목록으로 펼치기
@@ -56,7 +71,8 @@ class QuestionOcr {
 
     // 다 쓰고 나면 인식기를 닫는다 (메모리 정리)
     fun close() {
-        recognizer.close()
+        latinRecognizer.close()
+        koreanRecognizer.close()
     }
 }
 

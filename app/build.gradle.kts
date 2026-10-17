@@ -12,7 +12,7 @@ android {
 
     defaultConfig {
         applicationId = "com.example.androidlab"
-        minSdk = 28      // 이 버전보다 낮은 안드로이드에서는 설치 불가
+        minSdk = 24      // 이 버전보다 낮은 안드로이드에서는 설치 불가
         targetSdk = 37
         versionCode = 1
         versionName = "1.0"
@@ -49,6 +49,9 @@ dependencies {
 
     // 영어 OCR (사진 → 글자)
     implementation(libs.mlkit.text.latin)
+
+    // 한국어 OCR (해설 읽기용)
+    implementation(libs.mlkit.text.korean)
 
     // 사진 회전 정보(EXIF) 읽기 (BitmapLoader에서 사용)
     implementation(libs.androidx.exifinterface)

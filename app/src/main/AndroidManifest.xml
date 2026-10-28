@@ -12,8 +12,9 @@
         </intent>
     </queries>
 
+    <!-- 개발 중에는 테스트 편의성을 위해 allowBackup="false"유지 -->
     <application
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"

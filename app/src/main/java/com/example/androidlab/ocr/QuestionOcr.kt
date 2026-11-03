@@ -18,7 +18,10 @@ import kotlin.coroutines.resumeWithException
 // Rect는 left, top, right, bottom 네 숫자를 가진 안드로이드 기본 클래스다.
 data class OcrLine(
     val text: String,
-    val box: Rect
+    val box: Rect,
+    // 줄의 "왼쪽 끝"의 높이. 사진이 기울어도 번호 줄과 문제 첫 줄의 위아래를 정확히 비교하기 위함
+    // 값을 안 주면 사각형의 가운데 높이를 사용
+    val leftY: Int = box.centerY()
 )
 
 // 사진 → 글자를 읽는 클래스
@@ -57,8 +60,15 @@ class QuestionOcr {
                         .mapNotNull { line ->                 // 하나씩 바꾸되, 결과가 null인 것은 버린다
                             val box = line.boundingBox         // 위치가 없으면 null
                             if (box != null && line.text.isNotBlank()) {
-                                OcrLine(line.text.trim(), box)
-                            } else null                        // 위치나 글자가 없는 줄은 버린다
+                                // 줄의 네 모서리 중 왼쪽 위(0번)와 왼쪽 아래(3번)의 가운데 = 왼쪽 끝의 높이
+                                val corners = line.cornerPoints
+                                val leftY = if (corners != null && corners.size == 4) {
+                                    (corners[0].y + corners[3].y) / 2
+                                } else {
+                                    box.centerY()
+                                }
+                                OcrLine(line.text.trim(), box, leftY)
+                            } else null // 위치나 글자가 없는 줄은 버린다
                         }
 
                     // 2단 페이지를 왼쪽 단 → 오른쪽 단 순서로 정렬해서 돌려준다.
@@ -92,7 +102,7 @@ object ReadingOrder {
         val (left, right) = usable.partition { it.box.centerX() < centerX }
 
         // 각 단 안에서 위에서 아래로 정렬 (높이가 같으면 왼쪽부터)
-        val order = compareBy<OcrLine>({ it.box.top }, { it.box.left })
+        val order = compareBy<OcrLine>({ it.leftY }, { it.box.left })
         return left.sortedWith(order) + right.sortedWith(order)
     }
 }

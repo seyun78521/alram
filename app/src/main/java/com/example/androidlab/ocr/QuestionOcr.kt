@@ -77,16 +77,19 @@ class QuestionOcr {
 }
 
 // 책처럼 2단으로 된 페이지를 읽는 순서로 정렬한다: 왼쪽 단 위→아래, 그다음 오른쪽 단 위→아래
-// object = 객체가 딱 하나만 있는 클래스. Java의 static 메서드 모음과 비슷하다.
 object ReadingOrder {
 
     fun sort(lines: List<OcrLine>, imageWidth: Int): List<OcrLine> {
         val centerX = imageWidth / 2 // 사진 가운데 x 좌표
 
+        // 사진 오른쪽 끝에 찍힌 옆 페이지 조각("13", "M-A", "(A) 질" 등)은 버린다.
+        // 줄의 왼쪽 끝이 사진 폭의 85% 이상이면 조각으로 본다.
+        // filter { 조건 } = 조건이 true인 것만 남긴다
+        val usable = lines.filter { it.box.left < imageWidth * 0.85 }
+
         // partition = 목록을 조건에 맞는 것 / 안 맞는 것 두 목록으로 나눈다.
-        // val (left, right) = ... 는 두 결과를 한 번에 받는 문법이다.
         // 줄의 가운데가 사진 가운데보다 왼쪽이면 왼쪽 단, 아니면 오른쪽 단
-        val (left, right) = lines.partition { it.box.centerX() < centerX }
+        val (left, right) = usable.partition { it.box.centerX() < centerX }
 
         // 각 단 안에서 위에서 아래로 정렬 (높이가 같으면 왼쪽부터)
         val order = compareBy<OcrLine>({ it.box.top }, { it.box.left })

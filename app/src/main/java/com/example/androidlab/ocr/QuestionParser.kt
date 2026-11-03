@@ -89,6 +89,16 @@ object QuestionParser {
         return letter.toString() to content
     }
 
+    // 아랫줄(down)이 윗줄(up)에 이어지는 글인지 판단한다. 아래 두 조건을 모두 만족해야 true.
+    //  1) 윗줄이 . ? ! 로 끝나지 않았다 (문장이 아직 안 끝남)
+    //  2) 아랫줄이 새 보기 "(B) ..." 이거나 화자 표시 "M-Au ..." 로 시작하지 않는다
+    private fun isContinuation(up: String, down: String): Boolean {
+        if (up.endsWith(".") || up.endsWith("?") || up.endsWith("!")) return false
+        if (parseChoice(down) != null) return false
+        if (speakerRegex.containsMatchIn(down)) return false
+        return true
+    }
+
     // ===== OCR 글자 정리 =====
     //  - 세로선 "|" 는 대문자 I로 잘못 읽힌 것이므로 "I"로 바꾼다
     //  - 굽은 따옴표 ’ 는 보통 따옴표 ' 로 바꾼다
@@ -160,10 +170,16 @@ object QuestionParser {
             if (choice == null) continue
 
             val letter = choice.first   // "A" / "B" / "C"
-            val content = choice.second // 선택지 내용
+            var content = choice.second // 선택지 내용
 
             // 같은 알파벳이 또 나오면 첫 번째만 쓴다
             if (choices.containsKey(letter)) continue
+
+            // 보기가 두 줄로 끊긴 경우: 아랫줄을 이어 붙인다
+            // i + 1 < lines.size = 아랫줄이 실제로 있는지 확인 (배열 범위 검사와 같음)
+            if (i + 1 < lines.size && isContinuation(content, lines[i + 1].text)) {
+                content = content + " " + lines[i + 1].text
+            }
 
             choices[letter] = cleanEnglish(content)
 

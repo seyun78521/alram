@@ -21,7 +21,7 @@ class QuestionReader(context: Context) {
 
     // "이 문장 읽기가 끝났는가?"를 기다리는 상자들. 문장마다 이름표(id)를 붙여 둔다.
     // 읽기가 끝나면 listener 가 해당 상자를 채워서(complete) 기다리던 곳을 깨운다.
-    // ConcurrentHashMap = 여러 스레드가 동시에 써도 안전한 Map (Java에도 있는 클래스)
+    // ConcurrentHashMap = 여러 스레드가 동시에 써도 안전한 Map
     private val pending = ConcurrentHashMap<String, CompletableDeferred<Boolean>>()
 
     // 문장 이름표를 만들 때 쓰는 번호 (utt1, utt2, ...)
@@ -30,8 +30,8 @@ class QuestionReader(context: Context) {
     // TTS 엔진 본체. init 블록에서 만든다. (? = null일 수도 있다는 뜻)
     private var tts: TextToSpeech? = null
 
-    // 문장 하나를 읽는 도중 일어나는 일을 알려 주는 장치. (Java의 콜백 객체와 같다)
-    // object : 클래스() { } 는 이름 없는 클래스를 바로 만드는 문법이다. (Java의 익명 클래스)
+    // 문장 하나를 읽는 도중 일어나는 일을 알려 주는 장치
+    // object : 클래스() { } 는 이름 없는 클래스
     private val listener = object : UtteranceProgressListener() {
         override fun onStart(utteranceId: String?) {}
 

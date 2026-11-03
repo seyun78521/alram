@@ -89,7 +89,6 @@ class QuestionImporter(private val context: Context) {
 
         // 2) 영어 OCR: 사진 → 읽는 순서대로 정렬된 글자 줄들
         val allLines = ocr.recognizeLines(bitmap)
-        for (l in allLines) android.util.Log.d("OCR", "top=${l.box.top} left=${l.box.left} ${l.text}")
 
         // 3) 한글이 있는 자리의 영어 줄(= 한글을 잘못 읽은 쓰레기)을 지운다
         val lines = removeHangulAreas(allLines, koreanLines)

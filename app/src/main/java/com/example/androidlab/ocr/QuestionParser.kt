@@ -89,13 +89,15 @@ object QuestionParser {
         return letter.toString() to content
     }
 
-    // 아랫줄(down)이 윗줄(up)에 이어지는 글인지 판단한다. 아래 두 조건을 모두 만족해야 true.
+    // 아랫줄(down)이 윗줄(up)에 이어지는 글인지 판단한다. 아래 조건을 모두 만족해야 true.
     //  1) 윗줄이 . ? ! 로 끝나지 않았다 (문장이 아직 안 끝남)
     //  2) 아랫줄이 새 보기 "(B) ..." 이거나 화자 표시 "M-Au ..." 로 시작하지 않는다
+    //  3) 아랫줄은 "(" 로 시작하지 않는다
     private fun isContinuation(up: String, down: String): Boolean {
         if (up.endsWith(".") || up.endsWith("?") || up.endsWith("!")) return false
         if (parseChoice(down) != null) return false
         if (speakerRegex.containsMatchIn(down)) return false
+        if (down.startsWith("(")) return false
         return true
     }
 

@@ -77,41 +77,60 @@ class QuestionImporter(private val context: Context) {
     // ===== 사진 한 장 처리 =====
     // 한 페이지에 문제가 여러 개 있을 수 있다.
     private suspend fun importFromBitmap(bitmap: Bitmap): Result {
-        // 1) 영어 OCR: 사진 → 읽는 순서대로 정렬된 글자 줄들
-        val lines = ocr.recognizeLines(bitmap)
-
-        // 2) 파서: 줄들 → 번호가 붙은 문제 목록 (문제 문장 + A/B/C)
-        val parsed = QuestionParser.parse(lines)
-
-        // 3) 한글 OCR로 해설을 읽어 번호별로 정리한다. 문제가 하나도 없으면 읽지 않는다.
-        //    해설은 부가 기능이라, 한글 OCR이 실패해도 문제 저장은 계속한다.
-        var explanations = emptyMap<Int, String>()
-        if (parsed.questions.isNotEmpty()) {
-            try {
-                val koreanLines = ocr.recognizeKoreanLines(bitmap)
-                explanations = QuestionParser.parseExplanations(koreanLines)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                // 해설 없이 계속 진행한다
-            }
+        // 1) 한글 OCR을 먼저 실행. 해설을 읽고, 쓰레기값 판정에 활용
+        var koreanLines = emptyList<OcrLine>()
+        try {
+            koreanLines = ocr.recognizeKoreanLines(bitmap)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // 해설 없이 계속 진행한다
         }
 
-        // 4) 번호가 같은 문제에만 해설을 붙인다
+        // 2) 영어 OCR: 사진 → 읽는 순서대로 정렬된 글자 줄들
+        val allLines = ocr.recognizeLines(bitmap)
+        for (l in allLines) android.util.Log.d("OCR", "top=${l.box.top} left=${l.box.left} ${l.text}")
+
+        // 3) 한글이 있는 자리의 영어 줄(= 한글을 잘못 읽은 쓰레기)을 지운다
+        val lines = removeHangulAreas(allLines, koreanLines)
+
+        // 4) 파서: 줄들 → 번호가 붙은 문제 목록 (문제 문장 + A/B/C)
+        val parsed = QuestionParser.parse(lines)
+
+        // 5) 한글 줄들에서 해설을 번호별로 정리한다, 문제가 없으면 스킵
+        var explanations = emptyMap<Int, String>()
+        if (parsed.questions.isNotEmpty()) {
+            explanations = QuestionParser.parseExplanations(koreanLines)
+        }
+
+        // 6) 번호가 같은 문제에만 해설을 붙인다
         val questions = QuestionParser.attachExplanations(parsed.questions, explanations)
 
-        // 5) 이미 저장된 문제(같은 문제 문장)는 빼고, 새 문제만 남긴다
+        // 7) 이미 저장된 문제(같은 문제 문장)는 빼고, 새 문제만 남긴다
         //    filter { 조건 } = 조건이 true인 것만 남긴다
         val newQuestions = questions.filter {
             dao.countByQuestionText(it.questionText) == 0
         }
 
-        // 6) 새 문제를 DB에 하나씩 저장한다
+        // 8) 새 문제를 DB에 하나씩 저장한다
         for (question in newQuestions) {
             dao.insert(question)
         }
 
         return Result(newQuestions.size, emptyList(), parsed.skipped)
+    }
+
+    // 영어 OCR이 한글을 인식한 쓰레기값 삭제
+    private fun removeHangulAreas(latin: List<OcrLine>, korean: List<OcrLine>): List<OcrLine> {
+        // 한글이 2글자 이상 있는 줄만 "한글 줄"
+        // count { 조건 } = 조건을 만족하는 글자 수
+        val hangulLines = korean.filter { line -> line.text.count { it in '가'..'힣' } >= 2 }
+
+        // none { 조건 } = 조건을 만족하는 것이 하나도 없으면 true
+        // box.contains(x, y) = 점 (x, y)가 사각형 안에 있는가
+        return latin.filter { l ->
+            hangulLines.none { it.box.contains(l.box.centerX(), l.box.centerY()) }
+        }
     }
 
     // 다 쓰면 OCR 도구를 닫는다 (화면이 닫힐 때 부른다)

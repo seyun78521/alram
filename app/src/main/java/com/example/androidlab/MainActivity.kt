@@ -208,9 +208,9 @@ class MainActivity : AppCompatActivity() {
             val readOk = reader.read(question)
 
             // 읽기가 끝난 뒤 3초 동안 더 기다린다. 이 동안에는 답을 바꿀 수 있다.
-            // delay(밀리초) = 코루틴을 멈추고 기다린다. 3000 = 3초
-            showSolveScreen("읽기 끝! 3초 안에 답을 골라 주세요")
-            delay(3000)
+            // delay(밀리초) = 코루틴을 멈추고 기다린다. 1000 = 1초
+            showSolveScreen("읽기 끝! 5초 안에 답을 골라 주세요")
+            delay(5000)
 
             // 3초가 지났으니 마지막에 고른 답으로 확정하고 결과를 보여 준다
             isConfirmed = true

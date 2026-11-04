@@ -76,16 +76,18 @@ class QuestionReader(context: Context) {
         val engine = tts ?: return false // tts가 null이면 포기
 
         engine.language = Locale.US // 영어(미국) 목소리
-        engine.setSpeechRate(1.0f)  // 말하는 속도 (1.0 = 보통)
+        engine.setSpeechRate(1.0f)  // 말하는 속도 (1.0f = 기본값)
 
         // 1) 질문 문장을 읽는다. 다 읽을 때까지 기다린다.
         if (!speak(engine, question.questionText, TextToSpeech.QUEUE_FLUSH)) return false
+        delay(300) // 질문과 선택지 사이에 0.3초 쉰다(tts딜레이 0.5초 추가)
 
-        delay(700) // 질문과 선택지 사이에 0.7초 쉰다
-
-        // 2) 선택지를 읽는다.
-        val choices = "A. ${question.choiceA}. B. ${question.choiceB}. C. ${question.choiceC}."
-        return speak(engine, choices, TextToSpeech.QUEUE_ADD)
+        // 2) 선택지를 하나씩 읽는다. 선택지 사이에도 0.3초 쉰다.
+        if (!speak(engine, "A. ${question.choiceA}", TextToSpeech.QUEUE_ADD)) return false
+        delay(300)
+        if (!speak(engine, "B. ${question.choiceB}", TextToSpeech.QUEUE_ADD)) return false
+        delay(300)
+        return speak(engine, "C. ${question.choiceC}", TextToSpeech.QUEUE_ADD)
     }
 
     // 문장 하나를 읽고, 다 읽을 때까지 기다린다. 끝까지 읽었으면 true.

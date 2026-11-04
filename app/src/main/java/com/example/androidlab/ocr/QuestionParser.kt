@@ -218,7 +218,7 @@ object QuestionParser {
 
         if (questionText.isEmpty()) return null
 
-        // 정답과 해설은 비워 둔다. 정답은 사람이 입력하고, 해설은 나중에 attachExplanations 가 채운다.
+        // 정답과 해설은 비워 둔다.
         return Question(
             questionText = questionText,
             choiceA = choices.getValue("A"),
@@ -230,7 +230,6 @@ object QuestionParser {
     }
 
     // ===== 3단계: 한글 OCR 줄들에서 번호별 해설을 뽑는다 =====
-    // 반환: 번호 → 해설 글 (예: 9 → "프레젠테이션 슬라이드를 ... 정답.")
     // 같은 번호가 한 사진에 두 번 이상 나오면 어느 것이 맞는지 알 수 없으므로 그 번호는 뺀다.
     fun parseExplanations(lines: List<OcrLine>): Map<Int, String> {
         val starts = findNumberLines(lines)

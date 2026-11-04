@@ -5,7 +5,9 @@ import android.os.Bundle
 import android.widget.Button
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.FileProvider
 import androidx.lifecycle.lifecycleScope
 import com.example.androidlab.data.AppDatabase
 import com.example.androidlab.data.Question
@@ -14,6 +16,7 @@ import com.example.androidlab.tts.QuestionReader
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.io.File
 
 /*
  * 시험용 임시 화면. 팀 화면이 만들어지면 이 파일은 대체된다.
@@ -57,6 +60,16 @@ class MainActivity : AppCompatActivity() {
             if (uris.isNotEmpty()) importQuestions(uris)
         }
 
+    // 카메라로 찍은 사진이 저장될 주소
+    private var cameraUri: Uri? = null
+
+    // 카메라 앱을 띄우고, 촬영이 끝나면 { } 안이 실행된다. success = 사진을 실제로 찍었는가
+    private val takePicture =
+        registerForActivityResult(ActivityResultContracts.TakePicture()) { success: Boolean ->
+            val uri = cameraUri
+            if (success && uri != null) importQuestions(listOf(uri)) // 사진 한 장을 기존 등록 흐름에 넣는다
+        }
+
     // 화면이 처음 만들어질 때 한 번 실행된다 (Java 안드로이드의 onCreate와 같다)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -69,7 +82,7 @@ class MainActivity : AppCompatActivity() {
         // 버튼을 눌렀을 때 할 일을 연결한다.
         findViewById<Button>(R.id.importButton).setOnClickListener {
             stopSolving() // 읽는 중이었다면 멈춘다
-            pickImages.launch(arrayOf("image/*")) // 사진 선택 창 열기
+            showImportSourceDialog() // 카메라 / 사진첩 선택 창
         }
         findViewById<Button>(R.id.explanationCheckButton).setOnClickListener { showAllWithExplanation() }
         findViewById<Button>(R.id.answerStartButton).setOnClickListener { showNextWithoutAnswer() }
@@ -79,6 +92,30 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.answerAButton).setOnClickListener { onChoiceClick("A") }
         findViewById<Button>(R.id.answerBButton).setOnClickListener { onChoiceClick("B") }
         findViewById<Button>(R.id.answerCButton).setOnClickListener { onChoiceClick("C") }
+    }
+
+    // "카메라로 촬영 / 사진첩에서 선택" 중 고르는 창을 띄운다
+    private fun showImportSourceDialog() {
+        val items = arrayOf("카메라로 촬영", "사진첩에서 선택")
+        AlertDialog.Builder(this)
+            .setTitle("문제 사진 등록")
+            .setItems(items) { _, which -> // which = 누른 항목의 번호 (0, 1)
+                if (which == 0) {
+                    launchCamera()
+                } else {
+                    pickImages.launch(arrayOf("image/*")) // 기존 사진첩 방식
+                }
+            }
+            .show()
+    }
+
+    // 카메라 앱을 띄운다. 찍은 사진은 캐시 폴더의 임시 파일에 저장된다.
+    private fun launchCamera() {
+        val dir = File(cacheDir, "camera").apply { mkdirs() }   // file_paths.xml의 path와 같아야 한다
+        val file = File.createTempFile("capture_", ".jpg", dir) // 겹치지 않는 파일 이름을 자동으로 만든다
+        val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+        cameraUri = uri
+        takePicture.launch(uri)
     }
 
     // 사진 → OCR → DB 저장

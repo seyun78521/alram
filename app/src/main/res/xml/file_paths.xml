@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- 앱의 캐시 폴더 안 camera 폴더만 카메라 앱에게 공유한다 -->
+    <cache-path name="camera" path="camera/" />
+</paths>

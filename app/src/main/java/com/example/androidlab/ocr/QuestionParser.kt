@@ -281,6 +281,24 @@ object QuestionParser {
         return result
     }
 
+    // 해설 글에서 정답을 찾는다.
+    // OCR이 "정답"을 잘못 읽는 경우도 있어서 여러 글자를 허용한다.
+    private fun answerFromExplanation(explanation: String): String {
+        val found = mutableListOf<String>() // "정답"이라고 적힌 보기들
+
+        for (letter in listOf("A", "B", "C")) {
+            for (mark in listOf("정답", "정담", "정단", "정딥", "정당")) {
+                if (explanation.contains("($letter) $mark") || explanation.contains("($letter)$mark")) {
+                    found.add(letter)
+                    break
+                }
+            }
+        }
+
+        // 정답이 딱 하나로 정해질 때만 인정한다
+        return if (found.size == 1) found[0] else ""
+    }
+
     // ===== 4단계: 번호가 같은 문제에만 해설을 붙인다 =====
     // 문제 쪽 번호도 한 사진에서 두 번 이상 나오면 어긋날 위험이 있어 붙이지 않는다.
     // 번호가 안 맞거나 해설이 없으면 해설은 빈 문자열로 둔다. (틀린 해설보다 빈 해설이 낫다)
@@ -299,7 +317,13 @@ object QuestionParser {
 
             val explanation = explanations[item.number] // 없으면 null
             if (count == 1 && explanation != null) {
-                result.add(item.question.copy(explanation = explanation))
+                // 해설을 붙이면서, 정답을 찾았으면 함께 채운다
+                result.add(
+                    item.question.copy(
+                        explanation = explanation,
+                        correctAnswer = answerFromExplanation(explanation)
+                    )
+                )
             } else {
                 result.add(item.question)
             }

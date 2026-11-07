@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.application) // 안드로이드 앱을 만드는 플러그인
     alias(libs.plugins.ksp)                 // Room이 코드를 자동으로 만들 때 쓰는 도구 (KSP)
+    alias(libs.plugins.google.services) // google-services.json 을 읽어서 Firebase 설정을 만들어 주는 플러그인
 }
 
 android {
@@ -58,4 +59,10 @@ dependencies {
 
     // 화면에서 lifecycleScope(코루틴) 사용
     implementation(libs.androidx.lifecycle.runtime.ktx)
+
+    // Firebase (BoM = 버전 묶음. 아래 두 라이브러리는 버전을 따로 적지 않는다)
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.auth)       // 로그인 (익명 로그인으로 사용자 구분)
+    implementation(libs.firebase.firestore)  // 공유 문제 저장소
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.10.2")
 }

@@ -11,8 +11,10 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.lifecycleScope
 import com.example.androidlab.data.AppDatabase
 import com.example.androidlab.data.Question
+import com.example.androidlab.data.QuestionSync
 import com.example.androidlab.ocr.QuestionImporter
 import com.example.androidlab.tts.QuestionReader
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -26,8 +28,8 @@ import java.io.File
  *  - lifecycleScope.launch { ... } = "화면이 살아 있는 동안만 도는 백그라운드 작업"을 시작한다.
  *      화면이 닫히면 자동으로 취소된다. DB, OCR, TTS는 오래 걸려서 반드시 이 안에서 불러야 한다.
  *  - 타입 뒤의 ? (예: Question?) = null일 수도 있다는 뜻
- *  - lateinit = "지금은 비어 있지만 onCreate에서 반드시 채운다"는 약속
- *  - { } 로 쓰는 코드 = Java의 람다
+ *  - lateinit = onCreate에서 나중에 채움
+ *  - { } 로 쓰는 코드 = 람다
  */
 class MainActivity : AppCompatActivity() {
 
@@ -92,6 +94,9 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.answerAButton).setOnClickListener { onChoiceClick("A") }
         findViewById<Button>(R.id.answerBButton).setOnClickListener { onChoiceClick("B") }
         findViewById<Button>(R.id.answerCButton).setOnClickListener { onChoiceClick("C") }
+        // 서버와 주고받는 버튼 (사용자가 직접 누를 때만 통신한다)
+        findViewById<Button>(R.id.uploadButton).setOnClickListener { uploadQuestions() }
+        findViewById<Button>(R.id.downloadButton).setOnClickListener { downloadQuestions() }
     }
 
     // "카메라로 촬영 / 사진첩에서 선택" 중 고르는 창을 띄운다
@@ -296,6 +301,43 @@ class MainActivity : AppCompatActivity() {
     // 문제를 화면에 보여줄 글로 만든다
     private fun questionToText(q: Question): String =
         "${q.questionText}\n\nA. ${q.choiceA}\nB. ${q.choiceB}\nC. ${q.choiceC}"
+
+    // ===== 서버 동기화 =====
+
+    // 내 폰의 문제(정답이 입력된 것만)를 Firestore에 올린다
+    private fun uploadQuestions() {
+        stopSolving() // 읽는 중이었다면 멈춘다
+        lifecycleScope.launch {
+            statusText.text = "업로드 중..."
+            try {
+                val dao = AppDatabase.getInstance(applicationContext).questionDao()
+                val count = QuestionSync.upload(dao) // 6-2에서 만든 함수
+                statusText.text = "업로드 완료\n정답이 입력된 문제 ${count}개를 올렸습니다."
+            } catch (e: CancellationException) {
+                throw e // 화면이 닫혀서 작업이 취소된 경우. 취소 신호는 삼키지 않고 그대로 넘긴다
+            } catch (e: Exception) {
+                // 인터넷 끊김, 권한 거부 등 모든 실패는 여기로 온다. 앱이 죽지 않고 이유를 보여 준다.
+                statusText.text = "업로드 실패\n${e.message}"
+            }
+        }
+    }
+
+    // 서버의 문제 중 내 폰에 없는 것만 받아서 Room에 저장한다
+    private fun downloadQuestions() {
+        stopSolving()
+        lifecycleScope.launch {
+            statusText.text = "받는 중..."
+            try {
+                val dao = AppDatabase.getInstance(applicationContext).questionDao()
+                val added = QuestionSync.download(dao) // 6-3a에서 만든 함수
+                statusText.text = "받기 완료\n새로 저장된 문제: ${added}개\n(이미 있는 문제는 건너뜀)"
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                statusText.text = "서버 연결 실패\n저장된 문제로는 계속 풀 수 있습니다."
+            }
+        }
+    }
 
     // 화면이 닫힐 때 쓰던 도구들을 정리한다
     override fun onDestroy() {

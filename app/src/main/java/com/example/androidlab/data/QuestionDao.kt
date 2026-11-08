@@ -15,7 +15,7 @@ interface QuestionDao {
     @Insert
     suspend fun insert(question: Question)
 
-    // 저장된 문제 전체를 저장된 순서(id 순)로 꺼낸다. (해설 짝 확인용)
+    // 저장된 문제 전체를 저장된 순서(id 순)로 꺼낸다. (해설 짝 확인, 문제 공유에서 쓴다)
     @Query("SELECT * FROM questions ORDER BY id")
     suspend fun getAll(): List<Question>
 

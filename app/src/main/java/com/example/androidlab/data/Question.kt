@@ -22,13 +22,12 @@ data class Question(
     val choiceB: String,
     val choiceC: String,
 
-    // 정답 "A" / "B" / "C". 저장할 때는 비워 두고(""), 나중에 사람이 입력한다.
+    // 해설에서 정답이 하나로 정해지면 자동으로 채운다.
     val correctAnswer: String,
 
-    // 해설. 지금은 쓰지 않고 항상 빈 문자열("")로 저장한다. (나중을 위한 빈 칸)
-    // "= """ 는 값을 안 주면 빈 문자열을 쓴다는 기본값이다.
+    // 한글 OCR에서 번호가 맞는 해설을 찾으면 채우고, 못 찾으면 빈 문자열로 둔다.
     val explanation: String = "",
 
-    // 저장한 시각 (기본값: 저장하는 순간의 시간)
+    // 저장한 시각
     val createdAt: Long = System.currentTimeMillis()
 )

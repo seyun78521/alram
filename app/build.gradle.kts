@@ -64,5 +64,7 @@ dependencies {
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.auth)       // 로그인 (익명 로그인으로 사용자 구분)
     implementation(libs.firebase.firestore)  // 공유 문제 저장소
+
+    // Firebase의 작업을 코루틴에서 await()로 기다리게 해 주는 라이브러리
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.10.2")
 }

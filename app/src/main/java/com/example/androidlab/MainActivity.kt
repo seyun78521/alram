@@ -22,7 +22,8 @@ import java.io.File
 
 /*
  * 시험용 임시 화면. 팀 화면이 만들어지면 이 파일은 대체된다.
- * 흐름: 사진 등록(OCR → 저장) → 정답 입력 → 문제 풀기(읽기 → 3초 대기 → 정오답 표시)
+ * 흐름: 사진 등록(OCR → 저장) → 정답 입력 → 문제 풀기(읽기 → 5초 대기 → 정오답 표시)
+ * 서버 공유: 버튼을 누를 때만 문제를 Firestore와 주고받는다.
  *
  * 이 파일에 나오는 Kotlin 표기
  *  - lifecycleScope.launch { ... } = "화면이 살아 있는 동안만 도는 백그라운드 작업"을 시작한다.
@@ -224,7 +225,7 @@ class MainActivity : AppCompatActivity() {
     // ===== 문제 풀기 모드 =====
 
     // 정답이 입력된 문제를 랜덤으로 1개 꺼내 보여 주고, 소리로 읽는다.
-    // 다 읽은 뒤 3초를 더 기다렸다가, 마지막에 고른 답으로 확정하고 정답/오답을 표시한다.
+    // 다 읽은 뒤 5초를 기다렸다가, 답을 확정하고 정답/오답을 표시한다.
     private fun startSolving() {
         stopSolving()    // 앞에서 읽던 것이 있으면 멈춘다
         isSolving = true // 문제 풀기 모드로 바꾼다
@@ -249,12 +250,12 @@ class MainActivity : AppCompatActivity() {
             // 소리로 읽는다. 다 읽을 때까지 여기서 기다린다. (실패하면 false)
             val readOk = reader.read(question)
 
-            // 읽기가 끝난 뒤 3초 동안 더 기다린다. 이 동안에는 답을 바꿀 수 있다.
+            // 읽기가 끝난 뒤 5초 동안 기다린다. 이 동안에는 답을 바꿀 수 있다.
             // delay(밀리초) = 코루틴을 멈추고 기다린다. 1000 = 1초
             showSolveScreen("읽기 끝! 5초 안에 답을 골라 주세요")
             delay(5000)
 
-            // 3초가 지났으니 마지막에 고른 답으로 확정하고 결과를 보여 준다
+            // 마지막에 고른 답으로 확정하고 결과를 보여 준다
             isConfirmed = true
             showResult(question, readOk)
         }
@@ -262,7 +263,7 @@ class MainActivity : AppCompatActivity() {
 
     // 읽던 작업을 멈춘다. (?. = solveJob 이 null 이 아닐 때만 cancel 을 부른다)
     private fun stopSolving() {
-        solveJob?.cancel() // 작업을 취소하면 읽기와 3초 기다림이 모두 취소된다
+        solveJob?.cancel() // 작업을 취소하면 읽기와 5초 기다림이 모두 취소된다
         solveJob = null
     }
 
@@ -303,20 +304,21 @@ class MainActivity : AppCompatActivity() {
         "${q.questionText}\n\nA. ${q.choiceA}\nB. ${q.choiceB}\nC. ${q.choiceC}"
 
     // ===== 서버 동기화 =====
-
-    // 내 폰의 문제(정답이 입력된 것만)를 Firestore에 올린다
+    // 서버와 문제를 주고받고, 결과를 화면에 보여 준다.
+    // Room의 정답이 입력된 문제만 서버에 올린다
     private fun uploadQuestions() {
         stopSolving() // 읽는 중이었다면 멈춘다
         lifecycleScope.launch {
             statusText.text = "업로드 중..."
             try {
                 val dao = AppDatabase.getInstance(applicationContext).questionDao()
-                val count = QuestionSync.upload(dao) // 6-2에서 만든 함수
+                val count = QuestionSync.upload(dao)
                 statusText.text = "업로드 완료\n정답이 입력된 문제 ${count}개를 올렸습니다."
             } catch (e: CancellationException) {
-                throw e // 화면이 닫혀서 작업이 취소된 경우. 취소 신호는 삼키지 않고 그대로 넘긴다
+                // 화면이 닫혀서 작업이 취소된 경우
+                throw e
             } catch (e: Exception) {
-                // 인터넷 끊김, 권한 거부 등 모든 실패는 여기로 온다. 앱이 죽지 않고 이유를 보여 준다.
+                // 인터넷 끊김, 권한 거부 등 모든 실패
                 statusText.text = "업로드 실패\n${e.message}"
             }
         }
@@ -324,16 +326,17 @@ class MainActivity : AppCompatActivity() {
 
     // 서버의 문제 중 내 폰에 없는 것만 받아서 Room에 저장한다
     private fun downloadQuestions() {
-        stopSolving()
+        stopSolving() // 읽는 중이었다면 멈춘다
         lifecycleScope.launch {
             statusText.text = "받는 중..."
             try {
                 val dao = AppDatabase.getInstance(applicationContext).questionDao()
-                val added = QuestionSync.download(dao) // 6-3a에서 만든 함수
+                val added = QuestionSync.download(dao)
                 statusText.text = "받기 완료\n새로 저장된 문제: ${added}개\n(이미 있는 문제는 건너뜀)"
             } catch (e: CancellationException) {
-                throw e
+                throw e // 위 업로드와 같다
             } catch (e: Exception) {
+                // 서버에 연결하지 못한 경우다. 문제 풀기는 내 폰의 DB만 쓰므로 계속 할 수 있다.
                 statusText.text = "서버 연결 실패\n저장된 문제로는 계속 풀 수 있습니다."
             }
         }

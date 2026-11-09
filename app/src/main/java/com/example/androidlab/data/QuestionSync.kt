@@ -8,7 +8,7 @@ import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withTimeoutOrNull
 
 // Room과 Firestore를 오가는 코드. upload() / download()만 호출하면 된다.
-// 서버에는 questions 컬렉션 안에 문제 하나가 문서 하나로 저장된다. (문서 이름은 QuestionHash값)
+// 서버에는 questions 컬렉션 안에 문제 하나가 문서 하나로 저장된다. (문서 이름은 QuestionKey값)
 object QuestionSync {
 
     // Firestore 안의 컬렉션 이름. (const = 바뀌지 않는 상수)
@@ -27,8 +27,16 @@ object QuestionSync {
     suspend fun upload(dao: QuestionDao): Int {
         ensureSignedIn()
 
-        // 1) 정답이 있는 문제만 고른다. filter { 조건 }
-        val targets = dao.getAll().filter { it.correctAnswer.isNotEmpty() }
+        // 1) 정답이 있는 문제만 모으고 중복이면 덮어쓴다
+        //    mutableMapOf = 나중에 값을 넣을 수 있는 Map
+        val byName = mutableMapOf<String, Question>()
+        for (q in dao.getAll()) {
+            val answer = q.correctAnswer   // Question에서 정답 글자를 가져온다
+            val empty = answer.isEmpty()   // 정답이 비었는지 확인한다
+            if (empty) continue            // 비었으면 다음 문제로 간다
+            byName[QuestionKey.of(q)] = q
+        }
+        val targets = byName.values.toList() // Map에서 문제들만 꺼내 목록으로 만든다
 
         val db = Firebase.firestore
 
@@ -37,8 +45,9 @@ object QuestionSync {
             val batch = db.batch()  // 여러 문제를 모아 한 번에 보냄
 
             for (q in chunk) {
-                // 문서 위치 = questions/{해시}
-                val ref = db.collection(COLLECTION).document(QuestionHash.of(q))
+                // 문서 위치 = questions/{문서 이름}
+                val name = QuestionKey.of(q)
+                val ref = db.collection(COLLECTION).document(name)
 
                 // 서버에 저장할 글자들 바꾸면 보안규칙도 같이 고쳐야 한다
                 batch.set(
@@ -56,8 +65,14 @@ object QuestionSync {
             }
 
             // 3) 서버로 보낸다. 10초 안에 응답이 없으면 오류로 처리
-            withTimeoutOrNull(10_000) { batch.commit().await(); true }
-                ?: throw IllegalStateException("서버 응답이 없습니다")
+            //    withTimeoutOrNull = 시간 안에 끝나면 true, 시간이 지나면 null을 돌려줌
+            val finished = withTimeoutOrNull(10_000) {
+                batch.commit().await()
+                true
+            }
+            if (finished == null) {
+                throw IllegalStateException("서버 응답이 없습니다")
+            }
         }
 
         return targets.size
@@ -69,10 +84,15 @@ object QuestionSync {
         ensureSignedIn()
 
         // 1) 서버의 문서를 전부 가져온다
-        val snapshot = Firebase.firestore.collection(COLLECTION).get(Source.SERVER).await()
+        val collectionRef = Firebase.firestore.collection(COLLECTION)
+        val snapshot = collectionRef.get(Source.SERVER).await()
 
-        // 2) Room에 있는 문제들의 해시를 모아 둔다
-        val localHashes = dao.getAll().map { QuestionHash.of(it) }.toMutableSet()
+        // 2) Room에 있는 문제들의 이름을 모아 둔다
+        //    mutableSetOf = 중복 없는 목록을 add()로 값을 넣는다.
+        val localKeys = mutableSetOf<String>()
+        for (local in dao.getAll()) {
+            localKeys.add(QuestionKey.of(local))
+        }
 
         var added = 0
 
@@ -89,7 +109,7 @@ object QuestionSync {
             )
 
             // 4) 없는 문제만 저장한다 (Set.add는 새로 들어가면 true, 이미 있으면 false)
-            if (localHashes.add(QuestionHash.of(q))) {
+            if (localKeys.add(QuestionKey.of(q))) {
                 dao.insert(q)   // Room에 저장
                 added++
             }

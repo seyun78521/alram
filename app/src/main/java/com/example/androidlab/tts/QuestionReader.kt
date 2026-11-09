@@ -116,11 +116,6 @@ class QuestionReader(context: Context) {
         }
     }
 
-    // 읽는 중인 소리를 멈춘다
-    fun stop() {
-        tts?.stop()
-    }
-
     // 다 쓰고 나면 TTS를 완전히 끈다 (화면이 닫힐 때 부른다)
     fun shutdown() {
         tts?.stop()

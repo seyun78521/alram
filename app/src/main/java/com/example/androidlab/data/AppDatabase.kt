@@ -15,7 +15,7 @@ abstract class AppDatabase : RoomDatabase() {
     // Question 표를 다루는 DAO를 돌려준다. (함수 몸체는 Room이 자동으로 만들어 준다)
     abstract fun questionDao(): QuestionDao
 
-    // companion object = Java의 static 멤버와 비슷하다.
+    // companion object = Java의 static과 비슷
     // AppDatabase.getInstance(...) 처럼 객체를 만들지 않고 바로 부를 수 있다.
     companion object {
 

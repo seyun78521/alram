@@ -13,14 +13,13 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 // OCR이 읽은 줄 하나: 글자(text) + 그 줄이 사진에서 차지하는 사각형 위치(box)
-// data class = 값을 담는 상자 전용 클래스. Java로 치면 필드, getter, equals, toString을
-//              컴파일러가 자동으로 만들어 주는 클래스다. (val = 한 번 정하면 못 바꾸는 값, Java의 final)
+// data class 사용
 // Rect는 left, top, right, bottom 네 숫자를 가진 안드로이드 기본 클래스다.
 data class OcrLine(
     val text: String,
     val box: Rect,
     // 줄의 "왼쪽 끝"의 높이. 사진이 기울어도 번호 줄과 문제 첫 줄의 위아래를 정확히 비교하기 위함
-    // 값을 안 주면 사각형의 가운데 높이를 사용
+    // 값을 안 주면 사각형의 가운데 높이를 사용 (사진의 각도 보정을 위해 필요)
     val leftY: Int = box.centerY()
 )
 
@@ -47,7 +46,6 @@ class QuestionOcr {
     // suspend = 시간이 걸리는 함수라서 코루틴(백그라운드 작업) 안에서만 부를 수 있다.
     // suspendCancellableCoroutine = ML Kit의 "다 끝나면 알려주기(콜백)" 방식을
     //                               "기다렸다가 결과를 받는" 방식으로 바꿔 준다.
-    // { continuation -> ... } 는 "이름 없는 함수(람다)"다. Java의 (continuation) -> { ... } 와 같다.
     // continuation.resume(값) = "기다리던 쪽에 결과를 전달하고 다시 깨운다"
     private suspend fun recognizeWith(recognizer: TextRecognizer, bitmap: Bitmap): List<OcrLine> =
         suspendCancellableCoroutine { continuation ->

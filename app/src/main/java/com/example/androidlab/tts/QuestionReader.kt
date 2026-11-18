@@ -11,7 +11,7 @@ import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 
 // 문제 하나를 소리 내어 읽어 주는 클래스. 한 목소리로 읽고, "다 읽을 때까지" 기다린다.
-// TTS = Text To Speech, 글자를 소리로 바꾸는 안드로이드 기본 기능
+// TTS 활용
 class QuestionReader(context: Context) {
 
     // "TTS가 준비됐는가?"를 나중에 알려 주는 상자.
@@ -19,19 +19,18 @@ class QuestionReader(context: Context) {
     // CompletableDeferred = 준비되면 complete(값)로 채워 두고, await()로 기다릴 수 있는 상자
     private val ready = CompletableDeferred<Boolean>()
 
-    // "이 문장 읽기가 끝났는가?"를 기다리는 상자들. 문장마다 이름표(id)를 붙여 둔다.
+    // "이 문장 읽기가 끝났는가?"를 기다리는 상자들. 문장마다 id를 붙여 둔다.
     // 읽기가 끝나면 listener 가 해당 상자를 채워서(complete) 기다리던 곳을 깨운다.
     // ConcurrentHashMap = 여러 스레드가 동시에 써도 안전한 Map
     private val pending = ConcurrentHashMap<String, CompletableDeferred<Boolean>>()
 
-    // 문장 이름표를 만들 때 쓰는 번호 (utt1, utt2, ...)
+    // 문장 id를 만들 때 쓰는 번호
     private var counter = 0
 
-    // TTS 엔진 본체. init 블록에서 만든다. (? = null일 수도 있다는 뜻)
+    // TTS 엔진 본체. init 블록에서 만든다
     private var tts: TextToSpeech? = null
 
     // 문장 하나를 읽는 도중 일어나는 일을 알려 주는 장치
-    // object : 클래스() { } 는 이름 없는 클래스
     private val listener = object : UtteranceProgressListener() {
         override fun onStart(utteranceId: String?) {}
 
@@ -56,7 +55,7 @@ class QuestionReader(context: Context) {
         }
     }
 
-    // 객체가 만들어질 때 한 번 실행된다. (Java의 생성자와 비슷하다)
+    // 객체가 만들어질 때 한 번 실행
     init {
         // { status -> ... } 는 "준비가 끝나면 호출되는 함수"다.
         tts = TextToSpeech(context.applicationContext) { status ->
@@ -80,9 +79,9 @@ class QuestionReader(context: Context) {
 
         // 1) 질문 문장을 읽는다. 다 읽을 때까지 기다린다.
         if (!speak(engine, question.questionText, TextToSpeech.QUEUE_FLUSH)) return false
-        delay(300) // 질문과 선택지 사이에 0.3초 쉰다(tts딜레이 0.5초 추가)
+        delay(300) // 질문과 선택지 사이에 0.3초 대기(tts딜레이 0.5초 추가 = 총 0.8초 대기)
 
-        // 2) 선택지를 하나씩 읽는다. 선택지 사이에도 0.3초 쉰다.
+        // 2) 선택지를 하나씩 읽는다. 선택지 사이에도 0.3초 대기.
         if (!speak(engine, "A. ${question.choiceA}", TextToSpeech.QUEUE_ADD)) return false
         delay(300)
         if (!speak(engine, "B. ${question.choiceB}", TextToSpeech.QUEUE_ADD)) return false

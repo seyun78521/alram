@@ -21,7 +21,6 @@ interface QuestionDao {
 
     // 정답이 이미 입력된 문제 중에서 랜덤으로 1개를 꺼낸다. 없으면 null.
     // != '' 는 "비어 있지 않다"는 뜻이다. (문제 풀기에 쓴다)
-    // (타입 뒤의 ? 는 "null일 수도 있다"는 뜻)
     @Query("SELECT * FROM questions WHERE correctAnswer != '' ORDER BY RANDOM() LIMIT 1")
     suspend fun getRandomWithAnswer(): Question?
 

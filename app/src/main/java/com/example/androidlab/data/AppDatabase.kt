@@ -19,8 +19,7 @@ abstract class AppDatabase : RoomDatabase() {
     // AppDatabase.getInstance(...) 처럼 객체를 만들지 않고 바로 부를 수 있다.
     companion object {
 
-        // DB 객체를 하나만 만들어 계속 재사용한다. (싱글톤)
-        // DB를 여러 개 만들면 메모리 낭비이고 오류가 날 수 있기 때문이다.
+        // DB 객체를 하나만 만들어 재사용한다. (싱글톤)
         // @Volatile = 여러 스레드가 항상 최신 값을 보게 한다.
         @Volatile
         private var INSTANCE: AppDatabase? = null

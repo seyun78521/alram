@@ -15,7 +15,6 @@ import kotlinx.coroutines.withContext
  * 이 파일에 나오는 Kotlin 표기
  *  - suspend = 오래 걸리는 작업이라 코루틴(백그라운드 작업) 안에서만 부를 수 있는 함수
  *  - withContext(Dispatchers.IO) = 파일 읽기 같은 일을 전용 백그라운드에서 한다
- *  - data class = getter 등을 자동으로 만들어 주는 값 전용 클래스 (Java의 단순 VO)
  *  - ?: = 왼쪽이 null이면 오른쪽 실행
  */
 class QuestionImporter(private val context: Context) {
@@ -33,13 +32,13 @@ class QuestionImporter(private val context: Context) {
 
     // ===== 사진 여러 장 처리 =====
     // uris = 사진 파일의 주소 목록 (갤러리/파일 선택 창에서 받은 것)
-    // onProgress = 진행 상황을 알려 주는 함수 (예: "2 / 5"). Java의 콜백과 같은 역할이다.
+    // onProgress = 진행 상황을 알려 주는 함수 (예: "2 / 5")
     suspend fun importFromUris(
         uris: List<Uri>,
         onProgress: (done: Int, total: Int) -> Unit = { _, _ -> }
     ): Result {
         var saved = 0
-        val failed = mutableListOf<String>()  // mutable = 나중에 add 할 수 있는 목록
+        val failed = mutableListOf<String>()  // mutable = 나중에 수정 할 수 있는 목록
         val skipped = mutableListOf<String>()
 
         // 사진을 한 장씩 처리한다. withIndex() = (번호, 값)을 같이 꺼내 준다.
@@ -60,8 +59,7 @@ class QuestionImporter(private val context: Context) {
                 skipped.addAll(result.skipped)
 
             } catch (e: CancellationException) {
-                // 화면이 닫혀서 작업이 취소된 경우다. 오류가 아니므로 기록하지 않고 그대로 위로 던져 작업을 끝낸다.
-                // (이걸 아래 Exception에서 잡아 버리면 취소가 제대로 안 된다)
+                // 작업이 취소된 경우다. 오류가 아니므로 기록하지 않고 작업을 끝낸다.
                 throw e
             } catch (e: Exception) {
                 // 사진 한 장이 실패해도 멈추지 않고 이유만 적어 두고 다음 사진으로 간다

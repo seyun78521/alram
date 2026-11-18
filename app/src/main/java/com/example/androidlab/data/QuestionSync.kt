@@ -11,7 +11,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 // 서버에는 questions 컬렉션 안에 문제 하나가 문서 하나로 저장된다. (문서 이름은 QuestionKey값)
 object QuestionSync {
 
-    // Firestore 안의 컬렉션 이름. (const = 바뀌지 않는 상수)
+    // Firestore 안의 컬렉션 이름. (const = 상수)
     private const val COLLECTION = "questions"
 
     // 로그인이 안 되어 있으면 익명 로그인을 한다. (보안 규칙이 로그인한 사용자만 허용하기 때문)
@@ -31,16 +31,15 @@ object QuestionSync {
         //    mutableMapOf = 나중에 값을 넣을 수 있는 Map
         val byName = mutableMapOf<String, Question>()
         for (q in dao.getAll()) {
-            val answer = q.correctAnswer   // Question에서 정답 글자를 가져온다
-            val empty = answer.isEmpty()   // 정답이 비었는지 확인한다
-            if (empty) continue            // 비었으면 다음 문제로 간다
+            if (q.correctAnswer.isEmpty()) continue // 정답이 빈 문제는 건너뛴다
             byName[QuestionKey.of(q)] = q
         }
+
         val targets = byName.values.toList() // Map에서 문제들만 꺼내 목록으로 만든다
 
         val db = Firebase.firestore
 
-        // 2) 400개씩 묶어서 보낸다. (최대가 500개라서 여유 있게)
+        // 2) 400개씩 묶어서 보낸다 (최대 500으로 수정 가능)
         for (chunk in targets.chunked(400)) {
             val batch = db.batch()  // 여러 문제를 모아 한 번에 보냄
 
@@ -67,7 +66,8 @@ object QuestionSync {
             // 3) 서버로 보낸다. 10초 안에 응답이 없으면 오류로 처리
             //    withTimeoutOrNull = 시간 안에 끝나면 true, 시간이 지나면 null을 돌려줌
             val finished = withTimeoutOrNull(10_000) {
-                batch.commit().await()
+                batch.commit() // 서버에 데이터를 요청
+                    .await() // 완료될 때까지 대기한다
                 true
             }
             if (finished == null) {

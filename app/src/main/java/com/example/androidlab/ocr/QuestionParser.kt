@@ -9,7 +9,7 @@ data class NumberedQuestion(
 )
 
 // 변환 결과를 담는 상자.
-// data class = 값을 담는 상자 전용 클래스. Java로 치면 getter, equals, toString을 자동으로 만들어 주는 클래스다.
+// data class 사용
 // questions: 번호가 붙은 문제들 / skipped: 만들지 못한 문제와 이유
 data class ParseResult(
     val questions: List<NumberedQuestion>,
@@ -22,7 +22,6 @@ data class ParseResult(
  * 흐름: OCR이 읽은 줄들 → 문제 번호로 나누기 → 문제 문장 + A/B/C 찾기 → Question 만들기
  * 해설: 한글 OCR 줄들 → 문제 번호로 나누기 → "해설"로 시작하는 줄부터 블록 끝까지 → 번호별 해설
  *
- * object = 객체가 딱 하나만 있는 클래스. Java의 static 메서드 모음과 비슷하다.
  */
 object QuestionParser {
 
@@ -62,7 +61,7 @@ object QuestionParser {
     private fun removeSpeaker(text: String): String =
         text.trim().replaceFirst(speakerRegex, "").trim()
 
-    // 선택지 판별만 정규식 대신 if
+    // 선택지 판별
     private fun parseChoice(text: String): Pair<String, String>? {
         // 1) 맨 앞에 화자 표시가 있으면 떼어 낸다. 예: "M-Au (A) 내용" → "(A) 내용"
         var s = removeSpeaker(text)
@@ -72,7 +71,7 @@ object QuestionParser {
             s = s.substring(1)
         }
 
-        // 3) 최소 3글자(예: "A.x")가 있어야 한다
+        // 3) 최소 3글자가 있어야 한다
         if (s.length < 3) return null
 
         // 4) 첫 글자가 A, B, C 중 하나인가?
@@ -102,7 +101,7 @@ object QuestionParser {
     }
 
     // ===== OCR 글자 정리 =====
-    //  - 세로선 "|" 는 대문자 I로 잘못 읽힌 것이므로 "I"로 바꾼다
+    //  - "|"는 잘못 읽힌 것이므로 "I"로 바꾼다
     //  - 굽은 따옴표 ’ 는 보통 따옴표 ' 로 바꾼다
     //  - 공백이 여러 개 연속이면 하나로 줄인다
     private fun cleanEnglish(text: String): String {
@@ -110,11 +109,11 @@ object QuestionParser {
             .replace("|", "I")
             .replace('’', '\'')
 
-        // 공백, 탭, 줄바꿈을 기준으로 단어를 쪼갠다. 연속 공백 사이에는 빈 조각이 생긴다.
+        // 공백, 탭, 줄바꿈을 기준으로 단어를 쪼갠다
         val pieces = replaced.split(' ', '\t', '\n', '\r')
 
-        // 빈 조각은 버리고, 남은 단어들을 공백 하나로 다시 이어 붙인다
-        val words = mutableListOf<String>() // mutable = 나중에 add 할 수 있는 목록
+        // 남은 단어들을 이어 붙인다
+        val words = mutableListOf<String>() // mutable = 나중에 수정 가능
         for (piece in pieces) {
             if (piece.isNotEmpty()) {
                 words.add(piece)
@@ -190,7 +189,7 @@ object QuestionParser {
             }
         }
 
-        // Part 2는 A, B, C가 모두 있어야 한다. 하나라도 없으면 포기(null).
+        // Part 2는 A, B, C가 모두 있어야 한다. 하나라도 없으면 저장 안함(null).
         if (!choices.containsKey("A") || !choices.containsKey("B") || !choices.containsKey("C")) {
             return null
         }
@@ -218,7 +217,7 @@ object QuestionParser {
 
         if (questionText.isEmpty()) return null
 
-        // 정답과 해설은 비워 둔다.
+        // 정답과 해설은 비워 둔다(한글 Ocr이 처리)
         return Question(
             questionText = questionText,
             choiceA = choices.getValue("A"),
@@ -300,7 +299,7 @@ object QuestionParser {
 
     // ===== 4단계: 번호가 같은 문제에만 해설을 붙인다 =====
     // 문제 쪽 번호도 한 사진에서 두 번 이상 나오면 어긋날 위험이 있어 붙이지 않는다.
-    // 번호가 안 맞거나 해설이 없으면 해설은 빈 문자열로 둔다. (틀린 해설보다 빈 해설이 낫다)
+    // 번호가 안 맞거나 해설이 없으면 해설은 빈 문자열로 둔다. (틀린 해설보다 빈 해설이 나으므로)
     fun attachExplanations(
         questions: List<NumberedQuestion>,
         explanations: Map<Int, String>

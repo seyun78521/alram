@@ -3,14 +3,12 @@ package com.example.androidlab.data
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
-// DB의 "questions" 표 한 줄(= 문제 하나)을 나타내는 클래스.
+// DB의 "questions" 표 한 줄(한 테이블 = 문제 하나)을 나타내는 클래스.
 // @Entity = "이 클래스를 DB 표로 만들어라"라는 표시 (Room이 읽는다)
-// data class = 값을 담는 상자 전용 클래스. Java로 치면 getter, equals, toString을 자동으로 만들어 주는 클래스다.
 @Entity(tableName = "questions")
 data class Question(
 
     // 문제 고유 번호. autoGenerate = true 이면 저장할 때 1, 2, 3... 자동으로 붙는다.
-    // val = 한 번 정하면 바꿀 수 없는 값 (Java의 final)
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0,
 

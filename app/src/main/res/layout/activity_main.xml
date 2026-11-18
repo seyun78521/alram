@@ -24,14 +24,6 @@
             android:layout_height="wrap_content"
             android:text="문제 이미지 등록" />
 
-        <!-- 임시: 저장된 문제 전체를 문제, 선지, 정답, 해설까지 글자로 보여 준다 (짝 확인용) -->
-        <Button
-            android:id="@+id/explanationCheckButton"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="해설 짝 확인 (임시)" />
-
         <!-- 정답 입력 시작 (정답이 비어 있는 문제를 하나 보여준다) -->
         <Button
             android:id="@+id/answerStartButton"

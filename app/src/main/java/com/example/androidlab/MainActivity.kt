@@ -21,16 +21,13 @@ import kotlinx.coroutines.launch
 import java.io.File
 
 /*
- * 시험용 임시 화면. 팀 화면이 만들어지면 이 파일은 대체된다.
+ * 시험용 임시 화면
  * 흐름: 사진 등록(OCR → 저장) → 정답 입력 → 문제 풀기(읽기 → 5초 대기 → 정오답 표시)
  * 서버 공유: 버튼을 누를 때만 문제를 Firestore와 주고받는다.
  *
  * 이 파일에 나오는 Kotlin 표기
  *  - lifecycleScope.launch { ... } = "화면이 살아 있는 동안만 도는 백그라운드 작업"을 시작한다.
  *      화면이 닫히면 자동으로 취소된다. DB, OCR, TTS는 오래 걸려서 반드시 이 안에서 불러야 한다.
- *  - 타입 뒤의 ? (예: Question?) = null일 수도 있다는 뜻
- *  - lateinit = onCreate에서 나중에 채움
- *  - { } 로 쓰는 코드 = 람다
  */
 class MainActivity : AppCompatActivity() {
 
@@ -87,7 +84,6 @@ class MainActivity : AppCompatActivity() {
             stopSolving() // 읽는 중이었다면 멈춘다
             showImportSourceDialog() // 카메라 / 사진첩 선택 창
         }
-        findViewById<Button>(R.id.explanationCheckButton).setOnClickListener { showAllWithExplanation() }
         findViewById<Button>(R.id.answerStartButton).setOnClickListener { showNextWithoutAnswer() }
         findViewById<Button>(R.id.solveButton).setOnClickListener { startSolving() }
 
@@ -147,37 +143,6 @@ class MainActivity : AppCompatActivity() {
                     append("\n\n[문제 인식 실패]\n${result.skipped.joinToString("\n")}")
                 }
             }
-        }
-    }
-
-    // 임시: 저장된 문제 전체를 "문제 / A B C / 정답 / 해설" 순서로 글자로 보여 준다.
-    // 해설이 그 문제의 해설이 맞는지 눈으로 대조하는 용도다.
-    private fun showAllWithExplanation() {
-        stopSolving() // 읽는 중이었다면 멈춘다
-        lifecycleScope.launch {
-            val dao = AppDatabase.getInstance(applicationContext).questionDao()
-            val all = dao.getAll() // 저장된 순서(id 순)
-
-            if (all.isEmpty()) {
-                statusText.text = "저장된 문제가 없습니다."
-                return@launch // return@launch = 이 작업 블록을 끝냄
-            }
-
-            // 해설이 채워진 문제가 몇 개인지 센다
-            var withExplanation = 0
-            for (q in all) {
-                if (q.explanation.isNotEmpty()) withExplanation++
-            }
-
-            val sb = StringBuilder("전체 ${all.size}개 / 해설 있음 ${withExplanation}개\n\n")
-            for (q in all) {
-                sb.append("[${q.id}] ${q.questionText}\n")
-                sb.append("A. ${q.choiceA}\nB. ${q.choiceB}\nC. ${q.choiceC}\n")
-                sb.append("정답: ${q.correctAnswer.ifEmpty { "(미입력)" }}\n") // ifEmpty = 비어 있을 때만 이 값을 쓴다
-                sb.append("해설: ${q.explanation.ifEmpty { "(없음)" }}\n")
-                sb.append("--------------------\n")
-            }
-            statusText.text = sb.toString()
         }
     }
 
@@ -261,10 +226,16 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // 읽던 작업을 멈춘다. (?. = solveJob 이 null 이 아닐 때만 cancel 을 부른다)
+    // 읽던 작업을 멈춘다. (?. = solveJob 이 null 이 아닐 때만 cancel을 호출)
     private fun stopSolving() {
-        solveJob?.cancel() // 작업을 취소하면 읽기와 5초 기다림이 모두 취소된다
+        solveJob?.cancel()  // 작업을 취소
         solveJob = null
+
+        isSolving = false // 상태 초기화
+        solvingQuestion = null
+        currentQuestion = null
+        selectedAnswer = ""
+        isConfirmed = false
     }
 
     // 문제 풀기 중에 A/B/C 를 누르면 "내 답"으로 기록하고 화면을 다시 그린다.

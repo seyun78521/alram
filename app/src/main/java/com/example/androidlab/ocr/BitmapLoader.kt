@@ -27,8 +27,6 @@ object BitmapLoader {
         )
 
         // 4) 회전 정보에 맞는 변환(Matrix)을 만든다. Matrix = 돌리기/뒤집기 규칙
-        // when = Java의 switch와 같다. orientation 값에 따라 아래 줄 중 하나가 실행된다.
-        // "값 -> 할 일" 모양이고 break가 필요 없다. else = Java의 default.
         // postRotate(90f) = 90도 돌리기, postScale(-1f, 1f) = 좌우 뒤집기. (f는 소수(float)라는 표시)
         val matrix = Matrix()
         when (orientation) {
@@ -48,7 +46,7 @@ object BitmapLoader {
             else -> return bitmap // 이미 똑바른 사진이면 그대로 돌려준다
         }
 
-        // 5) 변환을 적용한 새 Bitmap을 만들고, 원래 것은 메모리에서 비운다.
+        // 5) 변환을 적용한 새 Bitmap을 만들고, 원래 것은 메모리에서 비운다 (메모리 관리)
         val rotated = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
         if (rotated != bitmap) bitmap.recycle()
         return rotated

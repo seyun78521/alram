@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "843126938130",
+    "project_id": "kkaeum-8ba14",
+    "storage_bucket": "kkaeum-8ba14.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:843126938130:android:671143142cbcd962b7d6cb",
+        "android_client_info": {
+          "package_name": "com.example.androidlab"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCoE3j-NuTSOLkPgDXY6PI3ajtdsh1qVoA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

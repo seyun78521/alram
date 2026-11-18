@@ -2,202 +2,321 @@ package com.example.androidlab
 
 import android.net.Uri
 import android.os.Bundle
-import android.speech.tts.Voice
-import android.util.Log
 import android.widget.Button
 import android.widget.TextView
-import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
+import androidx.core.content.FileProvider
 import androidx.lifecycle.lifecycleScope
 import com.example.androidlab.data.AppDatabase
-import com.example.androidlab.data.LocalQuestionProvider
-import com.example.androidlab.data.QuestionCheck
-import com.example.androidlab.ocr.BatchImporter
+import com.example.androidlab.data.Question
+import com.example.androidlab.data.QuestionSync
+import com.example.androidlab.ocr.QuestionImporter
 import com.example.androidlab.tts.QuestionReader
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.io.File
 
+/*
+ * 시험용 임시 화면
+ * 흐름: 사진 등록(OCR → 저장) → 정답 입력 → 문제 풀기(읽기 → 5초 대기 → 정오답 표시)
+ * 서버 공유: 버튼을 누를 때만 문제를 Firestore와 주고받는다.
+ *
+ * 이 파일에 나오는 Kotlin 표기
+ *  - lifecycleScope.launch { ... } = "화면이 살아 있는 동안만 도는 백그라운드 작업"을 시작한다.
+ *      화면이 닫히면 자동으로 취소된다. DB, OCR, TTS는 오래 걸려서 반드시 이 안에서 불러야 한다.
+ */
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var batchImporter: BatchImporter
-    private lateinit var reader: QuestionReader
-    private lateinit var btnImport: Button
-    private lateinit var btnCheck: Button
-    private lateinit var btnSpeak: Button
-    private lateinit var btnVoices: Button
-    private lateinit var btnDemo: Button
-    private lateinit var btnAudition: Button
-    private lateinit var btnSetup: Button
-    private lateinit var tvStatus: TextView
-    private var speakJob: Job? = null
+    private lateinit var importer: QuestionImporter // 사진 → 문제 저장
+    private lateinit var reader: QuestionReader     // 문제 → 소리
+    private lateinit var statusText: TextView       // 결과를 보여주는 글자칸
 
-    // 파일/갤러리에서 사진 여러 장을 고르는 기본 선택 창
+    // 지금 화면이 "문제 풀기" 중인지 알려 주는 모드 값.
+    // false = 정답 입력 모드 (A/B/C 를 누르면 정답으로 저장)
+    // true  = 문제 풀기 모드 (A/B/C 를 누르면 "내 답"으로 선택만 한다)
+    private var isSolving = false
+
+    // 정답 입력 모드에서 지금 보여 주고 있는 문제. 없으면 null.
+    private var currentQuestion: Question? = null
+
+    // 문제 풀기 모드에서 지금 푸는 문제와, 사용자가 마지막으로 고른 답("A"/"B"/"C", 안 골랐으면 "")
+    private var solvingQuestion: Question? = null
+    private var selectedAnswer = ""
+
+    // 답이 확정됐는가? true 가 되면 A/B/C 를 눌러도 답이 바뀌지 않는다.
+    private var isConfirmed = false
+
+    // 지금 돌고 있는 "문제 풀기" 작업. 다른 버튼을 누르면 이 작업을 취소해서 읽기를 멈춘다.
+    // Job = 백그라운드 작업 하나를 가리키는 손잡이. cancel() 로 취소할 수 있다.
+    private var solveJob: Job? = null
+
+    // 사진 여러 장을 고르는 선택 창을 준비해 둔다. 사진을 고르면 { } 안이 실행된다.
     private val pickImages =
-        registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
-            if (uris.isNotEmpty()) startImport(uris)
+        registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris: List<Uri> ->
+            if (uris.isNotEmpty()) importQuestions(uris)
         }
 
+    // 카메라로 찍은 사진이 저장될 주소
+    private var cameraUri: Uri? = null
+
+    // 카메라 앱을 띄우고, 촬영이 끝나면 { } 안이 실행된다. success = 사진을 실제로 찍었는가
+    private val takePicture =
+        registerForActivityResult(ActivityResultContracts.TakePicture()) { success: Boolean ->
+            val uri = cameraUri
+            if (success && uri != null) importQuestions(listOf(uri)) // 사진 한 장을 기존 등록 흐름에 넣는다
+        }
+
+    // 화면이 처음 만들어질 때 한 번 실행된다 (Java 안드로이드의 onCreate와 같다)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
-        setContentView(R.layout.activity_main)
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main)) { v, insets ->
-            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
-            insets
-        }
+        setContentView(R.layout.activity_main) // activity_main.xml 화면을 붙인다
 
-        batchImporter = BatchImporter(applicationContext)
+        importer = QuestionImporter(applicationContext)
         reader = QuestionReader(applicationContext)
-        btnImport = findViewById(R.id.btnImport)
-        btnCheck = findViewById(R.id.btnCheck)
-        btnSpeak = findViewById(R.id.btnSpeak)
-        btnVoices = findViewById(R.id.btnVoices)
-        btnDemo = findViewById(R.id.btnDemo)
-        btnAudition = findViewById(R.id.btnAudition)
-        btnSetup = findViewById(R.id.btnSetup)
-        tvStatus = findViewById(R.id.tvStatus)
+        statusText = findViewById(R.id.statusText) // xml에서 id로 부품을 찾아 온다
 
-        btnImport.setOnClickListener { pickImages.launch(arrayOf("image/*")) }
-        btnCheck.setOnClickListener { checkAll() }
-        btnSpeak.setOnClickListener { speakRandom() }
-        btnVoices.setOnClickListener {
-            lifecycleScope.launch {
-                val lines = reader.voiceListLines()
-                lines.forEach { Log.d("VOICES", it) }
-                tvStatus.text = "영어 음성 정보 ${lines.size}줄을 Logcat(tag:VOICES)에 출력했습니다"
-            }
+        // 버튼을 눌렀을 때 할 일을 연결한다.
+        findViewById<Button>(R.id.importButton).setOnClickListener {
+            stopSolving() // 읽는 중이었다면 멈춘다
+            showImportSourceDialog() // 카메라 / 사진첩 선택 창
         }
-        btnDemo.setOnClickListener {
-            speakJob?.cancel()
-            speakJob = lifecycleScope.launch {
-                tvStatus.text = "W-Am → W-Br → M-Au → M-Cn 순서로 말합니다..."
-                val ok = reader.demo()
-                tvStatus.text = if (ok) "테스트 완료" else "테스트 실패 (소리 / TTS 설정 확인)"
-            }
-        }
-        btnAudition.setOnClickListener {
-            speakJob?.cancel()
-            speakJob = lifecycleScope.launch {
-                val lines = mutableListOf<String>()
-                val ok = reader.audition { i, total, description ->
-                    lines.add("$i. $description")
-                    tvStatus.text = "듣는 중 ($i/$total)\n" + lines.joinToString("\n")
-                }
-                tvStatus.text = (if (ok) "끝\n" else "음성이 없거나 실패\n") + lines.joinToString("\n")
-            }
-        }
-        btnSetup.setOnClickListener { openVoiceSetup() }
+        findViewById<Button>(R.id.answerStartButton).setOnClickListener { showNextWithoutAnswer() }
+        findViewById<Button>(R.id.solveButton).setOnClickListener { startSolving() }
+
+        // A/B/C 버튼은 모드에 따라 하는 일이 다르다. 그 구분은 onChoiceClick 에서 한다.
+        findViewById<Button>(R.id.answerAButton).setOnClickListener { onChoiceClick("A") }
+        findViewById<Button>(R.id.answerBButton).setOnClickListener { onChoiceClick("B") }
+        findViewById<Button>(R.id.answerCButton).setOnClickListener { onChoiceClick("C") }
+        // 서버와 주고받는 버튼 (사용자가 직접 누를 때만 통신한다)
+        findViewById<Button>(R.id.uploadButton).setOnClickListener { uploadQuestions() }
+        findViewById<Button>(R.id.downloadButton).setOnClickListener { downloadQuestions() }
     }
 
-    // ===== 임시 테스트 화면 코드 (팀원의 화면이 생기면 대체) =====
-    private fun startImport(uris: List<Uri>) {
-        btnImport.isEnabled = false
-        lifecycleScope.launch {
-            try {
-                val result = batchImporter.importFromUris(uris) { done, total ->
-                    tvStatus.text = "처리 중... $done / $total"
-                }
-                val total = AppDatabase.getInstance(applicationContext).questionDao().count()
-                tvStatus.text = "완료\n" +
-                        "저장 ${result.saved}개 / 중복 ${result.duplicates}개\n" +
-                        "건너뜀 ${result.skipped.size}개 / 읽기 실패 ${result.failedImages.size}장\n" +
-                        "DB 전체 문제 수: $total" +
-                        (if (result.failedImages.isNotEmpty())
-                            "\n\n[실패 원인]\n" + result.failedImages.joinToString("\n") else "") +
-                        (if (result.skipped.isNotEmpty())
-                            "\n\n[건너뜀]\n" + result.skipped.joinToString("\n") else "")
-            } finally {
-                btnImport.isEnabled = true
-            }
-        }
-    }
-
-    // 저장된 문제 전체를 정답 근거 / 오타 의심과 함께 화면과 Logcat(tag: CHECK)에 출력한다
-    private fun checkAll() {
-        lifecycleScope.launch {
-            val questions = AppDatabase.getInstance(applicationContext).questionDao().getAll()
-            if (questions.isEmpty()) {
-                tvStatus.text = "저장된 문제가 없습니다. 먼저 사진을 가져오세요."
-                return@launch
-            }
-            val report = QuestionCheck.buildReport(questions)
-            report.forEach { Log.d("CHECK", it) } // 첫 항목은 요약, 나머지는 문제별
-            tvStatus.text = report.joinToString("\n\n")
-        }
-    }
-
-    // DB에서 문제 1개를 랜덤으로 꺼내 화자별 목소리로 읽어준다
-    private fun speakRandom() {
-        speakJob?.cancel() // 읽는 중이면 멈추고 새로 시작
-        speakJob = lifecycleScope.launch {
-            val q = LocalQuestionProvider(applicationContext).getQuestions(1).firstOrNull()
-            if (q == null) {
-                tvStatus.text = "저장된 문제가 없습니다. 먼저 사진을 가져오세요."
-                return@launch
-            }
-            val setupHint =
-                if (reader.needsVoiceSetup()) "※ 이 폰에서는 일부 화자의 음성을 못 찾았습니다. '이 폰의 화자별 음성 설정'을 해 주세요.\n\n" else ""
-            val info = "질문: ${q.questionSpeaker.ifEmpty { "?" }} / 응답: ${q.answerSpeaker.ifEmpty { "?" }}\n" +
-                    "${q.questionText}\nA. ${q.choiceA}\nB. ${q.choiceB}\nC. ${q.choiceC}\n정답: ${q.correctAnswer}"
-            Log.d("TTS", info)
-
-            tvStatus.text = "${setupHint}읽는 중...\n$info"
-            val ok = reader.read(q)
-            tvStatus.text = setupHint + (if (ok) "읽기 완료\n" else "읽기 실패 (소리 / TTS 설정 확인)\n") + info
-        }
-    }
-
-    // 이 폰에 설치된 영어 음성을 들어 보며 화자별로 고른다 (선택은 이 폰에 저장된다)
-    private fun openVoiceSetup() {
-        speakJob?.cancel()
-        lifecycleScope.launch {
-            val voices = reader.installedEnglishVoices()
-            if (voices.isEmpty()) {
-                tvStatus.text = "설치된 영어 음성이 없습니다. 설치 화면을 엽니다."
-                reader.requestVoiceInstall()
-                return@launch
-            }
-            chooseVoice(listOf("W-Am", "W-Br", "M-Au", "M-Cn"), 0, voices)
-        }
-    }
-
-    private fun chooseVoice(labels: List<String>, index: Int, voices: List<Voice>) {
-        if (index >= labels.size) {
-            tvStatus.text = "음성 설정을 마쳤습니다. '화자별 목소리 테스트'로 확인해 보세요."
-            return
-        }
-        val label = labels[index]
-        val names = voices.map { "${it.name} (${it.locale})" }.toTypedArray()
-        var selected = voices.indexOfFirst { it.name == reader.savedVoiceName(label) }.coerceAtLeast(0)
-
+    // "카메라로 촬영 / 사진첩에서 선택" 중 고르는 창을 띄운다
+    private fun showImportSourceDialog() {
+        val items = arrayOf("카메라로 촬영", "사진첩에서 선택")
         AlertDialog.Builder(this)
-            .setTitle("$label 음성 선택 (${index + 1}/${labels.size})\n누르면 미리 들려줍니다")
-            .setSingleChoiceItems(names, selected) { _, which ->
-                selected = which
-                speakJob?.cancel()
-                speakJob = lifecycleScope.launch { reader.preview(voices[which], label) }
+            .setTitle("문제 사진 등록")
+            .setItems(items) { _, which -> // which = 누른 항목의 번호 (0, 1)
+                if (which == 0) {
+                    launchCamera()
+                } else {
+                    pickImages.launch(arrayOf("image/*")) // 기존 사진첩 방식
+                }
             }
-            .setPositiveButton("저장하고 다음") { _, _ ->
-                speakJob?.cancel()
-                reader.saveVoice(label, voices[selected].name)
-                chooseVoice(labels, index + 1, voices)
-            }
-            .setNegativeButton("건너뛰기") { _, _ ->
-                speakJob?.cancel()
-                chooseVoice(labels, index + 1, voices)
-            }
-            .setCancelable(false)
             .show()
     }
 
+    // 카메라 앱을 띄운다. 찍은 사진은 캐시 폴더의 임시 파일에 저장된다.
+    private fun launchCamera() {
+        val dir = File(cacheDir, "camera").apply { mkdirs() }   // file_paths.xml의 path와 같아야 한다
+        val file = File.createTempFile("capture_", ".jpg", dir) // 겹치지 않는 파일 이름을 자동으로 만든다
+        val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+        cameraUri = uri
+        takePicture.launch(uri)
+    }
+
+    // 사진 → OCR → DB 저장
+    private fun importQuestions(uris: List<Uri>) {
+        lifecycleScope.launch {
+            statusText.text = "문제 등록 중..."
+
+            // 처리하는 동안 진행 상황({ done, total } 부분)을 화면에 보여준다
+            val result = importer.importFromUris(uris) { done, total ->
+                statusText.text = "문제 등록 중... $done / $total"
+            }
+
+            // 결과 정리. buildString = 글자를 이어 붙여 하나의 문자열로 만든다.
+            statusText.text = buildString {
+                append("등록 완료\n")
+                append("저장된 문제: ${result.saved}개\n")
+                append("이미지 실패: ${result.failed.size}장\n")
+                append("문제 인식 실패: ${result.skipped.size}개")
+                if (result.failed.isNotEmpty()) {
+                    append("\n\n[이미지 실패]\n${result.failed.joinToString("\n")}")
+                }
+                if (result.skipped.isNotEmpty()) {
+                    append("\n\n[문제 인식 실패]\n${result.skipped.joinToString("\n")}")
+                }
+            }
+        }
+    }
+
+    // ===== A/B/C 버튼을 눌렀을 때 =====
+    // 모드(isSolving)에 따라 하는 일이 다르다.
+    private fun onChoiceClick(letter: String) {
+        if (isSolving) {
+            selectAnswer(letter) // 문제 풀기 중: 내 답으로 선택
+        } else {
+            saveAnswer(letter)   // 정답 입력 중: 정답으로 저장
+        }
+    }
+
+    // ===== 정답 입력 모드 =====
+
+    // 정답이 비어 있는 문제를 하나 꺼내 화면에 보여준다
+    private fun showNextWithoutAnswer() {
+        stopSolving()     // 읽는 중이었다면 멈춘다
+        isSolving = false // 정답 입력 모드로 바꾼다
+        lifecycleScope.launch {
+            val dao = AppDatabase.getInstance(applicationContext).questionDao()
+            val question = dao.getNextWithoutAnswer()
+            currentQuestion = question // 어떤 문제의 정답을 받는 중인지 기억해 둔다
+
+            statusText.text = if (question == null) {
+                "정답을 입력할 문제가 없습니다. (모두 입력했거나 문제가 없음)"
+            } else {
+                "정답을 눌러 주세요 (책을 보고 A / B / C)\n\n" + questionToText(question)
+            }
+        }
+    }
+
+    // 지금 보여준 문제의 정답을 저장하고, 다음 문제를 보여준다
+    private fun saveAnswer(answer: String) {
+        // 보여준 문제가 없으면(null) 아무것도 하지 않고 끝낸다 (?: return = null이면 함수 종료)
+        val question = currentQuestion ?: return
+
+        lifecycleScope.launch {
+            val dao = AppDatabase.getInstance(applicationContext).questionDao()
+            dao.setAnswer(question.id, answer) // DB에 정답 저장
+            showNextWithoutAnswer()            // 다음 정답 없는 문제로 넘어간다
+        }
+    }
+
+    // ===== 문제 풀기 모드 =====
+
+    // 정답이 입력된 문제를 랜덤으로 1개 꺼내 보여 주고, 소리로 읽는다.
+    // 다 읽은 뒤 5초를 기다렸다가, 답을 확정하고 정답/오답을 표시한다.
+    private fun startSolving() {
+        stopSolving()    // 앞에서 읽던 것이 있으면 멈춘다
+        isSolving = true // 문제 풀기 모드로 바꾼다
+
+        // launch 가 돌려주는 Job 을 solveJob 에 보관해 둔다. (나중에 cancel() 하려고)
+        solveJob = lifecycleScope.launch {
+            val dao = AppDatabase.getInstance(applicationContext).questionDao()
+            val question = dao.getRandomWithAnswer() // 정답이 있는 문제만 랜덤으로 1개
+
+            solvingQuestion = question
+            selectedAnswer = "" // 새 문제이므로 아직 아무것도 고르지 않은 상태
+            isConfirmed = false // 아직 확정되지 않음
+
+            // 정답이 입력된 문제가 하나도 없으면 안내하고 끝낸다
+            if (question == null) {
+                statusText.text = "정답이 입력된 문제가 없습니다. 먼저 정답을 입력하세요"
+                return@launch
+            }
+
+            showSolveScreen("읽는 중... (A / B / C 를 골라도 됩니다)")
+
+            // 소리로 읽는다. 다 읽을 때까지 여기서 기다린다. (실패하면 false)
+            val readOk = reader.read(question)
+
+            // 읽기가 끝난 뒤 5초 동안 기다린다. 이 동안에는 답을 바꿀 수 있다.
+            // delay(밀리초) = 코루틴을 멈추고 기다린다. 1000 = 1초
+            showSolveScreen("읽기 끝! 5초 안에 답을 골라 주세요")
+            delay(5000)
+
+            // 마지막에 고른 답으로 확정하고 결과를 보여 준다
+            isConfirmed = true
+            showResult(question, readOk)
+        }
+    }
+
+    // 읽던 작업을 멈춘다. (?. = solveJob 이 null 이 아닐 때만 cancel을 호출)
+    private fun stopSolving() {
+        solveJob?.cancel()  // 작업을 취소
+        solveJob = null
+
+        isSolving = false // 상태 초기화
+        solvingQuestion = null
+        currentQuestion = null
+        selectedAnswer = ""
+        isConfirmed = false
+    }
+
+    // 문제 풀기 중에 A/B/C 를 누르면 "내 답"으로 기록하고 화면을 다시 그린다.
+    // 확정되기 전까지는 여러 번 눌러도 마지막에 누른 것만 남는다.
+    private fun selectAnswer(letter: String) {
+        // 풀고 있는 문제가 없거나, 이미 확정됐으면 아무것도 하지 않고 끝낸다
+        if (solvingQuestion == null || isConfirmed) return
+
+        selectedAnswer = letter
+        showSolveScreen("답을 골라 주세요 (마지막에 고른 답으로 확정됩니다)")
+    }
+
+    // 문제 풀기 화면을 글자로 그린다. 문제 + 안내 글 + 지금 고른 답
+    private fun showSolveScreen(guide: String) {
+        val question = solvingQuestion ?: return
+
+        val selected = selectedAnswer.ifEmpty { "(아직 안 골랐음)" }
+        statusText.text = guide + "\n\n" + questionToText(question) + "\n\n선택한 답: $selected"
+    }
+
+    // 확정 후, 마지막에 고른 답과 정답을 비교해서 결과를 보여 준다
+    private fun showResult(question: Question, readOk: Boolean) {
+        // 읽기에 실패한 경우(소리가 안 나는 등)에도 결과는 보여 준다. 안내만 덧붙인다.
+        val readNote = if (readOk) "" else "(읽기에 실패했습니다. 소리 설정을 확인해 주세요)\n\n"
+
+        val result = when {
+            selectedAnswer.isEmpty() -> "답을 고르지 않았습니다. 정답: ${question.correctAnswer}"
+            selectedAnswer == question.correctAnswer -> "정답입니다! (내 답: $selectedAnswer)"
+            else -> "오답입니다. (내 답: $selectedAnswer / 정답: ${question.correctAnswer})"
+        }
+
+        statusText.text = readNote + questionToText(question) + "\n\n" + result
+    }
+
+    // 문제를 화면에 보여줄 글로 만든다
+    private fun questionToText(q: Question): String =
+        "${q.questionText}\n\nA. ${q.choiceA}\nB. ${q.choiceB}\nC. ${q.choiceC}"
+
+    // ===== 서버 동기화 =====
+    // 서버와 문제를 주고받고, 결과를 화면에 보여 준다.
+    // Room의 정답이 입력된 문제만 서버에 올린다
+    private fun uploadQuestions() {
+        stopSolving() // 읽는 중이었다면 멈춘다
+        lifecycleScope.launch {
+            statusText.text = "업로드 중..."
+            try {
+                val dao = AppDatabase.getInstance(applicationContext).questionDao()
+                val count = QuestionSync.upload(dao)
+                statusText.text = "업로드 완료\n정답이 입력된 문제 ${count}개를 올렸습니다."
+            } catch (e: CancellationException) {
+                // 화면이 닫혀서 작업이 취소된 경우
+                throw e
+            } catch (e: Exception) {
+                // 인터넷 끊김, 권한 거부 등 모든 실패
+                statusText.text = "업로드 실패\n${e.message}"
+            }
+        }
+    }
+
+    // 서버의 문제 중 내 폰에 없는 것만 받아서 Room에 저장한다
+    private fun downloadQuestions() {
+        stopSolving() // 읽는 중이었다면 멈춘다
+        lifecycleScope.launch {
+            statusText.text = "받는 중..."
+            try {
+                val dao = AppDatabase.getInstance(applicationContext).questionDao()
+                val added = QuestionSync.download(dao)
+                statusText.text = "받기 완료\n새로 저장된 문제: ${added}개\n(이미 있는 문제는 건너뜀)"
+            } catch (e: CancellationException) {
+                throw e // 위 업로드와 같다
+            } catch (e: Exception) {
+                // 서버에 연결하지 못한 경우다. 문제 풀기는 내 폰의 DB만 쓰므로 계속 할 수 있다.
+                statusText.text = "서버 연결 실패\n저장된 문제로는 계속 풀 수 있습니다."
+            }
+        }
+    }
+
+    // 화면이 닫힐 때 쓰던 도구들을 정리한다
     override fun onDestroy() {
-        super.onDestroy()
-        batchImporter.close()
         reader.shutdown()
+        importer.close()
+        super.onDestroy()
     }
 }

@@ -2,72 +2,135 @@ package com.example.androidlab.ocr
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.net.Uri
 import com.example.androidlab.data.AppDatabase
-import com.example.androidlab.data.Question
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.File
 
-// 가져오기 결과: 새로 저장한 개수 / 이미 있어서 건너뛴 개수 / 구조화 실패한 문제와 이유
-data class ImportResult(
-    val saved: Int,
-    val duplicates: Int,
-    val skipped: List<String>
-)
-
+/*
+ * 사진 여러 장 → OCR → 문제 분리 → 해설 붙이기 → DB 저장을 한 번에 해 주는 클래스.
+ * 화면(MainActivity)은 이 클래스의 importFromUris()만 부르면 된다.
+ *
+ * 이 파일에 나오는 Kotlin 표기
+ *  - suspend = 오래 걸리는 작업이라 코루틴(백그라운드 작업) 안에서만 부를 수 있는 함수
+ *  - withContext(Dispatchers.IO) = 파일 읽기 같은 일을 전용 백그라운드에서 한다
+ *  - ?: = 왼쪽이 null이면 오른쪽 실행
+ */
 class QuestionImporter(private val context: Context) {
 
-    private val dao = AppDatabase.getInstance(context).questionDao()
-    private val ocr = QuestionOcr() // 여러 장을 처리할 때 재사용한다
+    private val dao = AppDatabase.getInstance(context).questionDao() // DB에 문제를 넣고 빼는 도구
+    private val ocr = QuestionOcr()                                  // 사진에서 글자를 읽는 도구
 
-    // 이미지 1장 → OCR → 문제 구조화 → DB 저장
-    suspend fun importFromBitmap(bitmap: Bitmap, category: String = "Part 2"): ImportResult {
-        // 1) 글자 인식 (위치 기준으로 읽는 순서 정렬)
-        val lines = ocr.recognizeLines(bitmap)
+    // 처리 결과를 담는 상자
+    // saved: 새로 저장한 문제 수 / failed: 읽지 못한 사진 / skipped: 문제로 못 만든 것
+    data class Result(
+        val saved: Int,
+        val failed: List<String>,
+        val skipped: List<String> = emptyList() // 값을 안 주면 빈 목록
+    )
 
-        // 2) 문제/선택지/정답/해설로 구조화 (정답 선택지는 빨간 글자색으로도 확인)
-        val parsed = QuestionParser.parse(lines.map { it.text }, category) { index ->
-            InkColor.redRatio(bitmap, lines[index].corners)
+    // ===== 사진 여러 장 처리 =====
+    // uris = 사진 파일의 주소 목록 (갤러리/파일 선택 창에서 받은 것)
+    // onProgress = 진행 상황을 알려 주는 함수 (예: "2 / 5")
+    suspend fun importFromUris(
+        uris: List<Uri>,
+        onProgress: (done: Int, total: Int) -> Unit = { _, _ -> }
+    ): Result {
+        var saved = 0
+        val failed = mutableListOf<String>()  // mutable = 나중에 수정 할 수 있는 목록
+        val skipped = mutableListOf<String>()
+
+        // 사진을 한 장씩 처리한다. withIndex() = (번호, 값)을 같이 꺼내 준다.
+        for ((index, uri) in uris.withIndex()) {
+            onProgress(index, uris.size)
+
+            try {
+                // 1) 사진 파일을 읽어서 Bitmap(사진 데이터)으로 만든다.
+                val bitmap = withContext(Dispatchers.IO) {
+                    context.contentResolver.openInputStream(uri)
+                        ?.use { BitmapLoader.decodeUpright(it) } // use = 다 쓰면 파일을 자동으로 닫는다 (Java의 try-with-resources)
+                        ?: throw IllegalStateException("이미지를 읽을 수 없습니다.")
+                }
+
+                // 2) 사진 한 장을 처리한다 (OCR → 분리 → 해설 붙이기 → 저장)
+                val result = importFromBitmap(bitmap)
+                saved += result.saved
+                skipped.addAll(result.skipped)
+
+            } catch (e: CancellationException) {
+                // 작업이 취소된 경우다. 오류가 아니므로 기록하지 않고 작업을 끝낸다.
+                throw e
+            } catch (e: Exception) {
+                // 사진 한 장이 실패해도 멈추지 않고 이유만 적어 두고 다음 사진으로 간다
+                failed.add("${index + 1}번째 이미지: ${e.message ?: "알 수 없는 오류"}")
+            }
+
+            onProgress(index + 1, uris.size)
         }
 
-        // 3) 이미 저장된 문제는 제외
-        val newOnes = mutableListOf<Question>()
-        var duplicates = 0
-        for (q in parsed.questions) {
-            if (dao.countByQuestionText(q.questionText) > 0) duplicates++ else newOnes.add(q)
+        return Result(saved, failed, skipped)
+    }
+
+    // ===== 사진 한 장 처리 =====
+    // 한 페이지에 문제가 여러 개 있을 수 있다.
+    private suspend fun importFromBitmap(bitmap: Bitmap): Result {
+        // 1) 한글 OCR을 먼저 실행. 해설을 읽고, 쓰레기값 판정에 활용
+        var koreanLines = emptyList<OcrLine>()
+        try {
+            koreanLines = ocr.recognizeKoreanLines(bitmap)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // 해설 없이 계속 진행한다
         }
 
-        // 4) 저장할 문제가 있을 때만 이미지를 보관하고 DB에 저장
-        if (newOnes.isNotEmpty()) {
-            val path = saveImage(bitmap)
-            dao.insertAll(newOnes.map { it.copy(imagePath = path) })
+        // 2) 영어 OCR: 사진 → 읽는 순서대로 정렬된 글자 줄들
+        val allLines = ocr.recognizeLines(bitmap)
+
+        // 3) 한글이 있는 자리의 영어 줄(= 한글을 잘못 읽은 쓰레기)을 지운다
+        val lines = removeHangulAreas(allLines, koreanLines)
+
+        // 4) 파서: 줄들 → 번호가 붙은 문제 목록 (문제 문장 + A/B/C)
+        val parsed = QuestionParser.parse(lines)
+
+        // 5) 한글 줄들에서 해설을 번호별로 정리한다, 문제가 없으면 스킵
+        var explanations = emptyMap<Int, String>()
+        if (parsed.questions.isNotEmpty()) {
+            explanations = QuestionParser.parseExplanations(koreanLines)
         }
 
-        return ImportResult(newOnes.size, duplicates, parsed.skipped)
+        // 6) 번호가 같은 문제에만 해설을 붙인다
+        val questions = QuestionParser.attachExplanations(parsed.questions, explanations)
+
+        // 7) 이미 저장된 문제(같은 문제 문장)는 빼고, 새 문제만 남긴다
+        //    filter { 조건 } = 조건이 true인 것만 남긴다
+        val newQuestions = questions.filter {
+            dao.countByQuestionText(it.questionText) == 0
+        }
+
+        // 8) 새 문제를 DB에 하나씩 저장한다
+        for (question in newQuestions) {
+            dao.insert(question)
+        }
+
+        return Result(newQuestions.size, emptyList(), parsed.skipped)
     }
 
-    // 이미지를 (긴 변 2000px로 줄여서) 앱 내부 저장소에 보관하고, 그 경로를 돌려준다
-    private suspend fun saveImage(bitmap: Bitmap): String = withContext(Dispatchers.IO) {
-        val dir = File(context.filesDir, "question_images").apply { mkdirs() }
-        val file = File.createTempFile("img_", ".jpg", dir) // 겹치지 않는 이름을 자동으로 만든다
-        val scaled = scaleDown(bitmap, 2000)
-        file.outputStream().use { scaled.compress(Bitmap.CompressFormat.JPEG, 85, it) }
-        if (scaled != bitmap) scaled.recycle()
-        file.absolutePath
+    // 영어 OCR이 한글을 인식한 쓰레기값 삭제
+    private fun removeHangulAreas(latin: List<OcrLine>, korean: List<OcrLine>): List<OcrLine> {
+        // 한글이 2글자 이상 있는 줄만 "한글 줄"
+        // count { 조건 } = 조건을 만족하는 글자 수
+        val hangulLines = korean.filter { line -> line.text.count { it in '가'..'힣' } >= 2 }
+
+        // none { 조건 } = 조건을 만족하는 것이 하나도 없으면 true
+        // box.contains(x, y) = 점 (x, y)가 사각형 안에 있는가
+        return latin.filter { l ->
+            hangulLines.none { it.box.contains(l.box.centerX(), l.box.centerY()) }
+        }
     }
 
-    private fun scaleDown(bitmap: Bitmap, maxSide: Int): Bitmap {
-        val longest = maxOf(bitmap.width, bitmap.height)
-        if (longest <= maxSide) return bitmap
-        val ratio = maxSide.toFloat() / longest
-        return Bitmap.createScaledBitmap(
-            bitmap,
-            (bitmap.width * ratio).toInt(),
-            (bitmap.height * ratio).toInt(),
-            true
-        )
-    }
-
+    // 다 쓰면 OCR 도구를 닫는다 (화면이 닫힐 때 부른다)
     fun close() {
         ocr.close()
     }

@@ -1,13 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 앱의 "신분증". 앱 이름, 아이콘, 테마, 첫 화면(시작점)을 시스템에 알려 주는 파일이다. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- TTS 엔진을 찾도록 시스템에 알린다.
+         안드로이드 11 이상은 앱이 다른 앱(TTS 엔진)을 보려면 이 선언이 필요하다. -->
     <queries>
         <intent>
             <action android:name="android.intent.action.TTS_SERVICE" />
         </intent>
     </queries>
+
+    <!-- 개발 중에는 테스트 편의성을 위해 allowBackup="false"유지, 백업을 다시 활성화할지는 추후에 상의 -->
     <application
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
@@ -15,16 +21,29 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.AndroidLab">
+
+        <!-- MainActivity = 앱을 켰을 때 처음 뜨는 화면 -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
+                <!-- MAIN + LAUNCHER = "이 화면이 앱의 시작점이고 앱 목록에 아이콘으로 보인다" -->
                 <action android:name="android.intent.action.MAIN" />
-
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- 카메라로 찍은 사진을 넘겨줄 때 쓰는 파일 공유 설정 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 
 </manifest>

@@ -1,141 +1,106 @@
 package com.example.androidlab.ocr
 
 import android.graphics.Bitmap
-import android.graphics.Color
-import android.graphics.Point
+import android.graphics.Rect
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.Text
 import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.TextRecognizer
 import com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
-import kotlin.math.abs
-import kotlin.math.hypot
 
-// OCR이 읽은 줄 하나: 글자 + 그 줄의 네 모서리 위치 (기울어진 줄도 정확히 표현한다)
-class OcrLine(val text: String, val corners: List<Point>)
+// OCR이 읽은 줄 하나: 글자(text) + 그 줄이 사진에서 차지하는 사각형 위치(box)
+// data class 사용
+// Rect는 left, top, right, bottom 네 숫자를 가진 안드로이드 기본 클래스다.
+data class OcrLine(
+    val text: String,
+    val box: Rect,
+    // 줄의 "왼쪽 끝"의 높이. 사진이 기울어도 번호 줄과 문제 첫 줄의 위아래를 정확히 비교하기 위함
+    // 값을 안 주면 사각형의 가운데 높이를 사용 (사진의 각도 보정을 위해 필요)
+    val leftY: Int = box.centerY()
+)
 
+// 사진 → 글자를 읽는 클래스
+//   latinRecognizer  : 영어 전용 인식기 (문제와 A/B/C 읽기)
+//   koreanRecognizer : 한국어 인식기 (해설 읽기. 한국어 인식기는 영어도 같이 읽는다)
 class QuestionOcr {
 
-    private val recognizer =
+    // ML Kit 글자 인식기 두 개. 한 번만 만들어 두고 계속 재사용한다.
+    private val latinRecognizer =
+        TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+    private val koreanRecognizer =
         TextRecognition.getClient(KoreanTextRecognizerOptions.Builder().build())
 
-    // 이미지(Bitmap)를 넣으면 인식된 글자 결과(Text)를 돌려준다
-    suspend fun recognize(bitmap: Bitmap): Text = suspendCancellableCoroutine { cont ->
-        recognizer.process(InputImage.fromBitmap(bitmap, 0))
-            .addOnSuccessListener { cont.resume(it) }
-            .addOnFailureListener { cont.resumeWithException(it) }
-    }
+    // 영어 인식기로 사진을 읽는다. 읽는 순서대로 정렬된 줄 목록을 돌려준다.
+    suspend fun recognizeLines(bitmap: Bitmap): List<OcrLine> =
+        recognizeWith(latinRecognizer, bitmap)
 
-    // 글자와 위치를 "사람이 읽는 순서"로 정렬해서 돌려준다
-    suspend fun recognizeLines(bitmap: Bitmap): List<OcrLine> {
-        val result = recognize(bitmap)
-        return ReadingOrder.sort(result.textBlocks.flatMap { it.lines }, bitmap.width)
-    }
+    // 한국어 인식기로 사진을 읽는다. 영어 줄도 섞여 나온다. 읽는 순서대로 정렬해서 돌려준다.
+    suspend fun recognizeKoreanLines(bitmap: Bitmap): List<OcrLine> =
+        recognizeWith(koreanRecognizer, bitmap)
 
+    // 인식기 하나와 사진을 받아서 읽는 순서대로 정렬된 줄 목록을 돌려준다.
+    // suspend = 시간이 걸리는 함수라서 코루틴(백그라운드 작업) 안에서만 부를 수 있다.
+    // suspendCancellableCoroutine = ML Kit의 "다 끝나면 알려주기(콜백)" 방식을
+    //                               "기다렸다가 결과를 받는" 방식으로 바꿔 준다.
+    // continuation.resume(값) = "기다리던 쪽에 결과를 전달하고 다시 깨운다"
+    private suspend fun recognizeWith(recognizer: TextRecognizer, bitmap: Bitmap): List<OcrLine> =
+        suspendCancellableCoroutine { continuation ->
+
+            recognizer.process(InputImage.fromBitmap(bitmap, 0))
+                .addOnSuccessListener { result: Text ->
+                    // 글자 덩어리(block) 안의 줄(line)들을 전부 꺼내서 OcrLine으로 바꾼다.
+                    val lines = result.textBlocks
+                        .flatMap { it.lines }                 // 블록들 속의 줄들을 한 목록으로 펼치기
+                        .mapNotNull { line ->                 // 하나씩 바꾸되, 결과가 null인 것은 버린다
+                            val box = line.boundingBox         // 위치가 없으면 null
+                            if (box != null && line.text.isNotBlank()) {
+                                // 줄의 네 모서리 중 왼쪽 위(0번)와 왼쪽 아래(3번)의 가운데 = 왼쪽 끝의 높이
+                                val corners = line.cornerPoints
+                                val leftY = if (corners != null && corners.size == 4) {
+                                    (corners[0].y + corners[3].y) / 2
+                                } else {
+                                    box.centerY()
+                                }
+                                OcrLine(line.text.trim(), box, leftY)
+                            } else null // 위치나 글자가 없는 줄은 버린다
+                        }
+
+                    // 2단 페이지를 왼쪽 단 → 오른쪽 단 순서로 정렬해서 돌려준다.
+                    continuation.resume(ReadingOrder.sort(lines, bitmap.width))
+                }
+                .addOnFailureListener { error ->
+                    continuation.resumeWithException(error)   // 실패하면 예외로 알린다
+                }
+        }
+
+    // 다 쓰고 나면 인식기를 닫는다 (메모리 정리)
     fun close() {
-        recognizer.close()
+        latinRecognizer.close()
+        koreanRecognizer.close()
     }
 }
 
-// OCR이 준 줄들을 "왼쪽 단 위→아래, 그다음 오른쪽 단 위→아래" 순서로 다시 세운다
+// 책처럼 2단으로 된 페이지를 읽는 순서로 정렬한다: 왼쪽 단 위→아래, 그다음 오른쪽 단 위→아래
 object ReadingOrder {
 
-    private class Item(val line: OcrLine, val leftX: Int, val leftY: Int, val height: Int)
+    fun sort(lines: List<OcrLine>, imageWidth: Int): List<OcrLine> {
+        val centerX = imageWidth / 2 // 사진 가운데 x 좌표
 
-    fun sort(lines: List<Text.Line>, imageWidth: Int): List<OcrLine> {
-        val all = lines.mapNotNull { toItem(it) }
+        // 사진 오른쪽 끝에 찍힌 옆 페이지 조각("13", "M-A", "(A) 질" 등)은 버린다.
+        // 줄의 왼쪽 끝이 사진 폭의 85% 이상이면 조각으로 본다.
+        // filter { 조건 } = 조건이 true인 것만 남긴다
+        val usable = lines.filter { it.box.left < imageWidth * 0.85 }
 
-        // 이미지 오른쪽 끝 15%는 옆 페이지가 찍힌 조각이라 버린다
-        val items = all.filter { it.leftX < imageWidth * 0.85 }
-        if (items.isEmpty()) return emptyList()
+        // partition = 목록을 조건에 맞는 것 / 안 맞는 것 두 목록으로 나눈다.
+        // 줄의 가운데가 사진 가운데보다 왼쪽이면 왼쪽 단, 아니면 오른쪽 단
+        val (left, right) = usable.partition { it.box.centerX() < centerX }
 
-        val medianHeight = items.map { it.height }.sorted()[items.size / 2]
-
-        // 1) 줄의 왼쪽 시작 위치가 크게 벌어지는 곳을 기준으로 단(열)을 나눈다
-        val byLeft = items.sortedBy { it.leftX }
-        val columns = mutableListOf<MutableList<Item>>()
-        var current = mutableListOf(byLeft.first())
-        for (i in 1 until byLeft.size) {
-            if (byLeft[i].leftX - byLeft[i - 1].leftX > imageWidth * 0.15) {
-                columns.add(current)
-                current = mutableListOf()
-            }
-            current.add(byLeft[i])
-        }
-        columns.add(current)
-
-        // 2) 단마다 위→아래로 정렬 (왼쪽 단이 먼저)
-        return columns.flatMap { sortColumn(it, medianHeight) }.map { it.line }
-    }
-
-    // 줄의 "왼쪽 끝" 위치와 실제 글자 높이를 구한다. 사진이 기울어도 줄 사이 비교가 흔들리지 않는다.
-    private fun toItem(line: Text.Line): Item? {
-        val pts = line.cornerPoints
-        if (pts != null && pts.size == 4) {
-            val leftX = (pts[0].x + pts[3].x) / 2
-            val leftY = (pts[0].y + pts[3].y) / 2
-            val h = hypot(
-                (pts[3].x - pts[0].x).toDouble(),
-                (pts[3].y - pts[0].y).toDouble()
-            ).toInt()
-            return Item(OcrLine(line.text, pts.toList()), leftX, leftY, maxOf(h, 1))
-        }
-        val box = line.boundingBox ?: return null
-        val corners = listOf(
-            Point(box.left, box.top), Point(box.right, box.top),
-            Point(box.right, box.bottom), Point(box.left, box.bottom)
-        )
-        return Item(OcrLine(line.text, corners), box.left, box.centerY(), maxOf(box.height(), 1))
-    }
-
-    // 한 단 안에서 위→아래로 정렬하고, 같은 줄에 걸린 조각은 왼→오 순서로 놓는다
-    private fun sortColumn(col: List<Item>, medianHeight: Int): List<Item> {
-        val rows = mutableListOf<MutableList<Item>>()
-        for (item in col.sortedBy { it.leftY }) {
-            val row = rows.lastOrNull()
-            if (row != null && abs(item.leftY - row.first().leftY) < medianHeight * 0.6) {
-                row.add(item)
-            } else {
-                rows.add(mutableListOf(item))
-            }
-        }
-        return rows.flatMap { row -> row.sortedBy { it.leftX } }
-    }
-}
-
-// 글자 색 판정: 한 줄 안의 글자 중 "빨간 글자"가 차지하는 비율
-object InkColor {
-
-    fun redRatio(bitmap: Bitmap, c: List<Point>): Float {
-        if (c.size != 4) return 0f
-        val p0 = c[0]
-        val p1 = c[1]
-        val p3 = c[3]
-        var ink = 0
-        var red = 0
-        val nu = 200 // 줄 방향으로 200곳
-        val nv = 8   // 줄 높이 방향으로 8곳
-        for (iu in 0 until nu) {
-            val u = (iu + 0.5f) / nu
-            for (iv in 0 until nv) {
-                val v = (iv + 0.5f) / nv
-                val x = (p0.x + u * (p1.x - p0.x) + v * (p3.x - p0.x)).toInt()
-                val y = (p0.y + u * (p1.y - p0.y) + v * (p3.y - p0.y)).toInt()
-                if (x < 0 || y < 0 || x >= bitmap.width || y >= bitmap.height) continue
-
-                val px = bitmap.getPixel(x, y)
-                val r = Color.red(px)
-                val g = Color.green(px)
-                val b = Color.blue(px)
-                val luminance = 0.299f * r + 0.587f * g + 0.114f * b
-                if (luminance < 170f) {            // 어두운 픽셀 = 글자
-                    ink++
-                    if (r > 90 && r - g > 25 && r - b > 25) red++ // 붉은 기가 도는 글자
-                }
-            }
-        }
-        return if (ink > 30) red.toFloat() / ink else 0f
+        // 각 단 안에서 위에서 아래로 정렬 (높이가 같으면 왼쪽부터)
+        val order = compareBy<OcrLine>({ it.leftY }, { it.box.left })
+        return left.sortedWith(order) + right.sortedWith(order)
     }
 }

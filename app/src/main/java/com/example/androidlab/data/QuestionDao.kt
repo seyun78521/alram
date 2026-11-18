@@ -4,42 +4,36 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.Query
 
+// DAO = Data Access Object. "DB에 무엇을 시킬 수 있는지" 목록만 적어 두는 인터페이스.
+// 함수 몸체는 쓰지 않는다. Room이 컴파일할 때 알아서 만들어 준다. (Java의 interface와 같은 모양)
+// suspend = 시간이 걸리는 작업이라 코루틴(백그라운드 작업) 안에서만 부를 수 있다.
+// @Query 안의 글은 SQL이다. SELECT = 읽기, UPDATE = 바꾸기, :이름 = 함수 인자 값이 들어가는 자리.
 @Dao
 interface QuestionDao {
 
-    // 문제 1개 저장 (저장된 문제의 id를 돌려줌)
+    // 문제 1개를 DB에 저장한다.
     @Insert
-    suspend fun insert(question: Question): Long
+    suspend fun insert(question: Question)
 
-    // 문제 여러 개 한 번에 저장
-    @Insert
-    suspend fun insertAll(questions: List<Question>)
-
-    // id로 문제 1개 조회 (없으면 null)
-    @Query("SELECT * FROM questions WHERE id = :id")
-    suspend fun getById(id: Long): Question?
-
-    // 저장된 문제 전체를 id 순서(=저장된 순서)로 조회 (확인용)
+    // 저장된 문제 전체를 저장된 순서(id 순)로 꺼낸다. (해설 짝 확인, 문제 공유에서 쓴다)
     @Query("SELECT * FROM questions ORDER BY id")
     suspend fun getAll(): List<Question>
 
-    // 전체에서 랜덤으로 count개 조회 (한 번 조회할 때 중복 없음)
-    @Query("SELECT * FROM questions ORDER BY RANDOM() LIMIT :count")
-    suspend fun getRandom(count: Int): List<Question>
+    // 정답이 이미 입력된 문제 중에서 랜덤으로 1개를 꺼낸다. 없으면 null.
+    // != '' 는 "비어 있지 않다"는 뜻이다. (문제 풀기에 쓴다)
+    @Query("SELECT * FROM questions WHERE correctAnswer != '' ORDER BY RANDOM() LIMIT 1")
+    suspend fun getRandomWithAnswer(): Question?
 
-    // 특정 category(예: "Part 3")에서만 랜덤으로 count개 조회
-    @Query("SELECT * FROM questions WHERE category = :category ORDER BY RANDOM() LIMIT :count")
-    suspend fun getRandomByCategory(category: String, count: Int): List<Question>
-
-    // 같은 문제 문장이 이미 저장되어 있는지 (0이면 없음)
+    // 같은 문제 문장이 이미 저장되어 있는지 센다. (0이면 없음 → 중복 확인에 쓴다)
     @Query("SELECT COUNT(*) FROM questions WHERE questionText = :text")
     suspend fun countByQuestionText(text: String): Int
 
-    // 저장된 문제가 총 몇 개인지
-    @Query("SELECT COUNT(*) FROM questions")
-    suspend fun count(): Int
+    // 정답이 아직 비어 있는 문제를 1개 꺼낸다. 없으면 null.
+    // 정답을 입력하면 더 이상 비어 있지 않으므로, 다음에 부르면 다음 문제가 나온다.
+    @Query("SELECT * FROM questions WHERE correctAnswer = '' ORDER BY id LIMIT 1")
+    suspend fun getNextWithoutAnswer(): Question?
 
-    // 전체 삭제 (테스트용)
-    @Query("DELETE FROM questions")
-    suspend fun deleteAll()
+    // 문제 하나(id)의 정답을 "A" / "B" / "C"로 저장한다. (UPDATE = 기존 값을 바꾼다)
+    @Query("UPDATE questions SET correctAnswer = :answer WHERE id = :id")
+    suspend fun setAnswer(id: Long, answer: String)
 }
